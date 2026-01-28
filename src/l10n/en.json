@@ -285,12 +285,19 @@
   "plugins.cleanPro.cleanHeadlessBlocks": "Clean Headless Blocks",
   "plugins.cleanPro.docs.title": "Plugin Doc",
   "plugins.witcatInfiniteCanvas.title": "Infinite Canvas by Witcat",
-  "plugins.witcatInfiniteCanvas.open": "Enable Infinite Canvas"
+  "plugins.witcatInfiniteCanvas.open": "Enable Infinite Canvas",
   "plugins.findDefinition.title": "find definition of custom block",
   "plugins.findDefinition.description": "Right-click on a custom block in the code area and select【Jump To Definition】to jump to the definition location of that custom block.",
   "plugins.findDefinition.goToDefinition": "Jump To Definition",
   "plugins.extensionTypeDefinition.title": "Provide auto-completion for extensions development",
   "plugins.extensionTypeDefinition.description": "After loading, type annotations will be automatically provided. By annotating variable types using jsdoc syntax, you can enjoy auto-completion. For example, \n/**\n* @type {Runtime}\n*/\nlet runtime;\nWhen typing \"runtime.\", it will prompt you with the methods supported by runtime",
   "plugins.wppMonaco.title": "Provide highlight and auto-completion for wpp",
-  "plugins.wppMonaco.description": "Create .wpp file, and enjoy the highlight and auto-completion!"
+  "plugins.wppMonaco.description": "Create .wpp file, and enjoy the highlight and auto-completion!",
+  "plugins.todoList.title": "To-Do List",
+  "plugins.todoList.description": "A lightweight To-Do plugin that supports collaborative cloud synchronization!",
+  "plugins.todoList.openDoc": "Open Doc",
+  "plugins.todoList.placeholder": "Enter a to-do item...",
+  "plugins.todoList.add": "Add",
+  "plugins.todoList.empty": "No to-do items yet\nClick the add button above to create one",
+  "plugins.todoList.refresh": "Refresh list"
 }
