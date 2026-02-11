@@ -10,4 +10,5 @@ export interface RuntimeFixed extends Scratch.Runtime {
 export interface Todo {
   id: number;
   content: string;
+  picOid?: string; // 负责人ID
 }

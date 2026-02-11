@@ -1,4 +1,4 @@
-import { RuntimeFixed } from "./types";
+import { RuntimeFixed, Todo } from "./types";
 /**
  * 提供类似 localStorage 的键值对存储接口，支持协作同步
  * @author skydog221
@@ -12,7 +12,7 @@ class ScratchConfigStorage {
   extensionName: string;
   commentId: string;
   stage: Scratch.RenderTarget;
-  constructor(runtime, extensionId, extensionName = extensionId) {
+  constructor(runtime: RuntimeFixed, extensionId: string, extensionName = extensionId) {
     this.runtime = runtime;
     this.extensionId = extensionId;
     this.extensionName = extensionName;
@@ -63,7 +63,7 @@ class ScratchConfigStorage {
    * 保存所有配置到注释
    * @param {Object} config 配置对象
    */
-  saveAllConfig(config) {
+  saveAllConfig(config: any) {
     const existingComment = this.findConfigComment();
     if (existingComment) {
       const lines = existingComment.text.split("\n");
@@ -96,7 +96,7 @@ class ScratchConfigStorage {
    * @param {*} value 值
    * @returns {boolean} 是否成功
    */
-  setItem(key, value) {
+  setItem(key: string, value: Todo[]) {
     try {
       let config = this.getAllConfig();
       if (!config) config = {};
@@ -116,7 +116,7 @@ class ScratchConfigStorage {
    * @param {*} defaultValue 默认值
    * @returns {*} 配置值
    */
-  getItem(key, defaultValue = null) {
+  getItem(key: string, defaultValue = null) {
     const config = this.getAllConfig();
     if (!config) return defaultValue;
 
@@ -128,7 +128,7 @@ class ScratchConfigStorage {
    * @param {string} key 键名
    * @returns {boolean} 是否成功
    */
-  removeItem(key) {
+  removeItem(key: string) {
     try {
       let config = this.getAllConfig();
       if (!config || !(key in config)) return false;
@@ -175,7 +175,7 @@ class ScratchConfigStorage {
    * @param {string} key 键名
    * @returns {boolean} 是否存在
    */
-  hasItem(key) {
+  hasItem(key: string) {
     const config = this.getAllConfig();
     return config && key in config;
   }
