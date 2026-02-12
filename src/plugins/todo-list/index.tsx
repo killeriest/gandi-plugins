@@ -2,15 +2,25 @@ import * as React from "react";
 import * as ReactDOM from "react-dom";
 import ExpansionBox, { ExpansionRect } from "components/ExpansionBox";
 import Tooltip from "components/Tooltip";
+import Tab from "components/Tab";
 import useStorageInfo from "hooks/useStorageInfo";
 import TodoListIcon from "assets/icon--todo-list.svg";
 import FinishIcon from "assets/icon--finish.svg";
 import styles from "./styles.less";
-import { RuntimeFixed, Todo } from "./types";
+import { RuntimeFixed, Todo, TodoPriority, TodoStatus } from "./types";
 import ScratchConfigStorage from "./configHelper";
 import PersonIcon from "assets/icon--person.svg";
+
 // 自动刷新间隔（毫秒）
 const AUTO_REFRESH_INTERVAL = 3000;
+const REMINDER_REFRESH_INTERVAL = 60000;
+const PRIORITY_OPTIONS: TodoPriority[] = ["P0", "P1", "P2", "P3", "P4", "P5"];
+const STATUS_TABS: Array<{ label: string; value: "all" | TodoStatus }> = [
+  { label: "全部完成", value: "all" },
+  { label: "待完成", value: "pending" },
+  { label: "已完成", value: "completed" },
+];
+const REMINDER_SOON_MS = 60 * 60 * 1000;
 
 const DEFAULT_CONTAINER_INFO = {
   width: 300,
@@ -19,43 +29,88 @@ const DEFAULT_CONTAINER_INFO = {
   translateY: 60,
 };
 
+const createEmptyTodoDraft = (): Todo => ({
+  id: Date.now(),
+  title: "",
+  content: "",
+  priority: "P3",
+  startTime: undefined,
+  endTime: undefined,
+  assigneeIds: [],
+  watcherIds: [],
+  status: "pending",
+});
+
+const normalizeTodo = (todo: Partial<Todo> & { id: number }): Todo => {
+  const content = todo.content || "";
+  const legacyPicOid = (todo as any).picOid as string | undefined;
+  return {
+    id: todo.id,
+    title: todo.title || content || "未命名",
+    content,
+    priority: todo.priority || "P3",
+    startTime: todo.startTime,
+    endTime: todo.endTime,
+    assigneeIds: todo.assigneeIds && todo.assigneeIds.length > 0 ? todo.assigneeIds : legacyPicOid ? [legacyPicOid] : [],
+    watcherIds: todo.watcherIds || [],
+    status: todo.status || "pending",
+  };
+};
+
 const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamworkManager }) => {
   const [visible, setVisible] = React.useState(false);
   const [containerInfo, setContainerInfo] = useStorageInfo("TODO_LIST_CONTAINER_INFO", DEFAULT_CONTAINER_INFO);
   const [todoList, setTodoList] = React.useState<Todo[]>([]);
-  const [isAdding, setIsAdding] = React.useState(false); // 是否正在添加新项
-  const [newItemValue, setNewItemValue] = React.useState(""); // 新项输入值
-  const [editingId, setEditingId] = React.useState<number | null>(null);
-  const [editingValue, setEditingValue] = React.useState("");
+  const [statusTabIndex, setStatusTabIndex] = React.useState(0);
+  const [detailVisible, setDetailVisible] = React.useState(false);
+  const [detailTodoId, setDetailTodoId] = React.useState<number | null>(null);
+  const [detailDraft, setDetailDraft] = React.useState<Todo>(createEmptyTodoDraft());
   const [teamworkMembers, setTeamworkMembers] = React.useState<readonly TeamMember[] | null>([]);
-  const [assigneePickerVisible, setAssigneePickerVisible] = React.useState(false);
-  const [assigneePickerTodoId, setAssigneePickerTodoId] = React.useState<number | null>(null);
-  const assigneePickerRef = React.useRef<HTMLDivElement>(null);
+  const [memberPickerOpen, setMemberPickerOpen] = React.useState<"assignee" | "watcher" | null>(null);
+  const [reminderTick, setReminderTick] = React.useState(Date.now());
 
   const rootRef = React.useRef(null);
   const containerRef = React.useRef(null);
   const containerInfoRef = React.useRef(containerInfo);
-  const newItemInputRef = React.useRef<HTMLInputElement>(null);
-  const editInputRef = React.useRef<HTMLInputElement>(null);
+  const detailTitleRef = React.useRef<HTMLInputElement>(null);
+  const memberPickerRef = React.useRef<HTMLDivElement>(null);
 
   const dataRef = React.useRef(new ScratchConfigStorage(vm.runtime as RuntimeFixed, "TODO_LIST", "Todo List"));
 
-  // 获取 Todo 列表
   const getTodoList = React.useCallback((): Todo[] => {
-    return (dataRef.current.getItem("todolist") as Todo[]) || [];
+    const rawList = (dataRef.current.getItem("todolist") as Array<Partial<Todo>>) || [];
+    const normalizedList = rawList.map((item) => normalizeTodo(item as Todo));
+    const shouldPersist = rawList.some((item, index) => {
+      const normalized = normalizedList[index];
+      return (
+        (item as Todo).title !== normalized.title ||
+        (item as Todo).priority !== normalized.priority ||
+        (item as Todo).status !== normalized.status ||
+        JSON.stringify((item as Todo).assigneeIds || []) !== JSON.stringify(normalized.assigneeIds) ||
+        JSON.stringify((item as Todo).watcherIds || []) !== JSON.stringify(normalized.watcherIds)
+      );
+    });
+    if (shouldPersist) {
+      dataRef.current.setItem("todolist", normalizedList);
+    }
+    return normalizedList;
   }, []);
 
-  // 刷新列表状态
   const refreshTodoList = React.useCallback(() => {
     setTodoList(getTodoList());
   }, [getTodoList]);
 
-  // 创建 Todo
   const createTodo = React.useCallback(
-    (content: string) => {
-      if (!content.trim()) return false;
+    (draft: Todo) => {
+      const title = draft.title.trim() || draft.content.trim();
+      if (!title) return false;
       const _list = getTodoList();
-      const newTodo: Todo = { id: Date.now(), content: content.trim() };
+      const newTodo: Todo = {
+        ...draft,
+        id: Date.now(),
+        title: title.trim(),
+        content: draft.content.trim(),
+      };
       dataRef.current.setItem("todolist", [..._list, newTodo]);
       refreshTodoList();
       return true;
@@ -63,7 +118,18 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     [getTodoList, refreshTodoList],
   );
 
-  // 删除 Todo
+  const updateTodo = React.useCallback(
+    (id: number, partial: Partial<Todo>) => {
+      const _list = getTodoList();
+      dataRef.current.setItem(
+        "todolist",
+        _list.map((item) => (item.id === id ? { ...item, ...partial } : item)),
+      );
+      refreshTodoList();
+    },
+    [getTodoList, refreshTodoList],
+  );
+
   const deleteTodo = React.useCallback(
     (id: number) => {
       const _list = getTodoList();
@@ -76,34 +142,13 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     [getTodoList, refreshTodoList],
   );
 
-  // 重命名 Todo
-  const renameTodo = React.useCallback(
-    (id: number, newContent: string) => {
-      if (!newContent.trim()) return;
-      const _list = getTodoList();
-      dataRef.current.setItem(
-        "todolist",
-        _list.map((item) => (item.id === id ? { ...item, content: newContent.trim() } : item)),
-      );
-      refreshTodoList();
+  const toggleTodoStatus = React.useCallback(
+    (todo: Todo) => {
+      updateTodo(todo.id, { status: todo.status === "completed" ? "pending" : "completed" });
     },
-    [getTodoList, refreshTodoList],
+    [updateTodo],
   );
 
-  // 更新 Todo 负责人
-  const updateTodoPic = React.useCallback(
-    (id: number, picOid: string | undefined) => {
-      const _list = getTodoList();
-      dataRef.current.setItem(
-        "todolist",
-        _list.map((item) => (item.id === id ? { ...item, picOid } : item)),
-      );
-      refreshTodoList();
-    },
-    [getTodoList, refreshTodoList],
-  );
-
-  // 容器位置计算
   const getContainerPosition = React.useCallback(() => {
     const { x, y } = (rootRef.current as any).getBoundingClientRect();
     return {
@@ -111,7 +156,7 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
       translateY: y - 6,
     };
   }, []);
-  // 显示面板
+
   const handleShow = React.useCallback(() => {
     setContainerInfo({
       ...containerInfoRef.current,
@@ -121,13 +166,10 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     setVisible(true);
   }, [getContainerPosition, refreshTodoList, setContainerInfo]);
 
-  // 关闭面板
   const handleClose = React.useCallback(() => {
     setVisible(false);
-    setEditingId(null);
   }, []);
 
-  // 尺寸变化
   const handleSizeChange = React.useCallback(
     (value: ExpansionRect) => {
       containerInfoRef.current = value;
@@ -136,78 +178,79 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     [setContainerInfo],
   );
 
-  // 点击"+"按钮，开始添加新项
-  const handleStartAdding = React.useCallback(() => {
-    setIsAdding(true);
-    setNewItemValue("");
+  const openCreateDetail = React.useCallback(() => {
+    setDetailTodoId(null);
+    setDetailDraft(createEmptyTodoDraft());
+    setDetailVisible(true);
   }, []);
 
-  // 保存新项
-  const handleSaveNewItem = React.useCallback(() => {
-    if (newItemValue.trim()) {
-      createTodo(newItemValue);
-    }
-    setIsAdding(false);
-    setNewItemValue("");
-  }, [newItemValue, createTodo]);
-
-  // 新项输入框键盘事件
-  const handleNewItemKeyDown = React.useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
-        handleSaveNewItem();
-      } else if (e.key === "Escape") {
-        setIsAdding(false);
-        setNewItemValue("");
-      }
-    },
-    [handleSaveNewItem],
-  );
-
-  // 开始编辑
-  const handleStartEdit = React.useCallback((todo: Todo) => {
-    setEditingId(todo.id);
-    setEditingValue(todo.content);
+  const openEditDetail = React.useCallback((todo: Todo) => {
+    setDetailTodoId(todo.id);
+    setDetailDraft({ ...todo });
+    setDetailVisible(true);
   }, []);
 
-  // 完成编辑
-  const handleFinishEdit = React.useCallback(() => {
-    if (editingId !== null && editingValue.trim()) {
-      renameTodo(editingId, editingValue);
-    }
-    setEditingId(null);
-    setEditingValue("");
-  }, [editingId, editingValue, renameTodo]);
+  const closeDetail = React.useCallback(() => {
+    setDetailVisible(false);
+    setMemberPickerOpen(null);
+  }, []);
 
-  // 编辑框键盘事件
-  const handleEditKeyDown = React.useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
-        handleFinishEdit();
-      } else if (e.key === "Escape") {
-        setEditingId(null);
-        setEditingValue("");
-      }
-    },
-    [handleFinishEdit],
+  const handleSaveDetail = React.useCallback(() => {
+    const title = detailDraft.title.trim() || detailDraft.content.trim();
+    if (!title) {
+      return;
+    }
+    if (detailTodoId === null) {
+      createTodo({ ...detailDraft, title });
+    } else {
+      updateTodo(detailTodoId, { ...detailDraft, title });
+    }
+    closeDetail();
+  }, [closeDetail, createTodo, detailDraft, detailTodoId, updateTodo]);
+
+  const handleStatusTabChange = React.useCallback((index: number) => {
+    setStatusTabIndex(index);
+  }, []);
+
+  const activeStatusFilter = STATUS_TABS[statusTabIndex]?.value || "all";
+  const filteredTodos = todoList.filter((todo) => (activeStatusFilter === "all" ? true : todo.status === activeStatusFilter));
+
+  const getMemberById = React.useCallback(
+    (id: string) => teamworkMembers?.find((member) => member.id === id),
+    [teamworkMembers],
   );
 
-  // 编辑框聚焦
-  React.useEffect(() => {
-    if (editingId !== null && editInputRef.current) {
-      editInputRef.current.focus();
-      editInputRef.current.select();
-    }
-  }, [editingId]);
+  const renderMemberAvatar = React.useCallback(
+    (memberId: string, index: number) => {
+      const member = getMemberById(memberId);
+      if (!member) return null;
+      return (
+        <img
+          key={`${memberId}-${index}`}
+          className={styles.memberAvatar}
+          src={member.avatar}
+          alt={member.name}
+          title={member.name}
+        />
+      );
+    },
+    [getMemberById],
+  );
 
-  // 新项输入框聚焦
-  React.useEffect(() => {
-    if (isAdding && newItemInputRef.current) {
-      newItemInputRef.current.focus();
-    }
-  }, [isAdding]);
+  const computeReminderState = React.useCallback(
+    (todo: Todo) => {
+      if (!todo.endTime || todo.status === "completed") {
+        return { overdue: false, soon: false };
+      }
+      const end = new Date(todo.endTime).getTime();
+      if (Number.isNaN(end)) return { overdue: false, soon: false };
+      if (end < reminderTick) return { overdue: true, soon: false };
+      if (end - reminderTick <= REMINDER_SOON_MS) return { overdue: false, soon: true };
+      return { overdue: false, soon: false };
+    },
+    [reminderTick],
+  );
 
-  // 自动刷新（当面板可见时）
   React.useEffect(() => {
     if (!visible) return;
 
@@ -218,7 +261,14 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     return () => clearInterval(intervalId);
   }, [visible, refreshTodoList]);
 
-  // 注册设置
+  React.useEffect(() => {
+    if (!visible) return;
+    const intervalId = setInterval(() => {
+      setReminderTick(Date.now());
+    }, REMINDER_REFRESH_INTERVAL);
+    return () => clearInterval(intervalId);
+  }, [visible]);
+
   React.useEffect(() => {
     registerSettings(
       msg("plugins.todoList.title"),
@@ -236,161 +286,125 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     return () => {};
   }, [msg, registerSettings]);
 
-  // Teamwork Member 刷新
   React.useEffect(() => {
     if (teamworkManager) {
       setTeamworkMembers(teamworkManager.teamMembers);
     }
   }, [teamworkManager, teamworkManager?.teamMembers]);
-  // 渲染 Todo 项
+
+  React.useEffect(() => {
+    if (detailVisible && detailTitleRef.current) {
+      detailTitleRef.current.focus();
+    }
+  }, [detailVisible]);
+
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (memberPickerRef.current && !memberPickerRef.current.contains(e.target as Node)) {
+        setMemberPickerOpen(null);
+      }
+    };
+    if (memberPickerOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [memberPickerOpen]);
+
   const renderTodoItem = React.useCallback(
     (todo: Todo) => {
-      const isEditing = editingId === todo.id;
-
-      const handleAssigneeClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        setAssigneePickerTodoId(todo.id);
-        setAssigneePickerVisible(true);
-      };
-
-      const handleMemberSelect = (memberId: string) => {
-        updateTodoPic(todo.id, memberId);
-        setAssigneePickerVisible(false);
-      };
-
-      const handleClearAssignee = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        updateTodoPic(todo.id, undefined);
-        setAssigneePickerVisible(false);
-      };
+      const reminderState = computeReminderState(todo);
+      const timeLabel = todo.startTime || todo.endTime ? `${todo.startTime || ""}${todo.startTime && todo.endTime ? " ~ " : ""}${todo.endTime || ""}` : "";
 
       return (
-        <div className={styles.todoItem} key={todo.id}>
-          {isEditing ? (
-            <input
-              ref={editInputRef}
-              className={styles.todoContentEditing}
-              value={editingValue}
-              onChange={(e) => setEditingValue(e.target.value)}
-              onBlur={handleFinishEdit}
-              onKeyDown={handleEditKeyDown}
-            />
-          ) : (
-            <span className={styles.todoContent} onClick={() => handleStartEdit(todo)}>
-              {todo.content}
+        <div className={styles.todoCard} key={todo.id} onClick={() => openEditDetail(todo)}>
+          <div className={styles.todoCardHeader}>
+            <span className={`${styles.priorityBadge} ${styles[`priority-${todo.priority.toLowerCase()}`]}`}>{todo.priority}</span>
+            <span className={styles.todoTitle}>{todo.title}</span>
+            <span className={`${styles.statusBadge} ${todo.status === "completed" ? styles.statusCompleted : styles.statusPending}`}>
+              {todo.status === "completed" ? "完成" : "进行"}
             </span>
+          </div>
+          {todo.content && <div className={styles.todoContentPreview}>{todo.content}</div>}
+          {timeLabel && (
+            <div className={styles.todoTime}>
+              <span className={styles.todoTimeIcon}>⏱</span>
+              <span>{timeLabel}</span>
+              {reminderState.overdue && <span className={styles.reminderOverdue}>已到期</span>}
+              {reminderState.soon && <span className={styles.reminderSoon}>即将到期</span>}
+            </div>
           )}
-          {/* 选择负责人 */}
-          {teamworkMembers && teamworkMembers.length > 0 && (
-            <AssigneePicker
-              todo={todo}
-              assigneePickerVisible={assigneePickerVisible}
-              assigneePickerTodoId={assigneePickerTodoId}
-              assigneePickerRef={assigneePickerRef}
-              onAssigneeClick={handleAssigneeClick}
-              onMemberSelect={handleMemberSelect}
-              onClearAssignee={handleClearAssignee}
-            />
-          )}
-          <button className={styles.todoDelete} onClick={() => deleteTodo(todo.id)}>
-            <FinishIcon />
-          </button>
+          <div className={styles.todoCardFooter}>
+            <div className={styles.todoMembers}>{todo.assigneeIds.slice(0, 3).map(renderMemberAvatar)}</div>
+            {todo.watcherIds.length > 0 && <span className={styles.watcherCount}>关注 {todo.watcherIds.length}</span>}
+            <div className={styles.todoActions} onClick={(event) => event.stopPropagation()}>
+              <button className={styles.todoFinishButton} onClick={() => toggleTodoStatus(todo)}>
+                {todo.status === "completed" ? "撤销" : "完成"}
+              </button>
+              <button className={styles.todoDelete} onClick={() => deleteTodo(todo.id)}>
+                <FinishIcon />
+              </button>
+            </div>
+          </div>
         </div>
       );
     },
-    [
-      editingId,
-      editingValue,
-      handleFinishEdit,
-      handleEditKeyDown,
-      handleStartEdit,
-      deleteTodo,
-      updateTodoPic,
-      teamworkMembers,
-      assigneePickerVisible,
-      assigneePickerTodoId,
-      assigneePickerRef,
-    ],
+    [computeReminderState, deleteTodo, openEditDetail, renderMemberAvatar, toggleTodoStatus],
   );
 
-  // 负责人选择器组件
-  const AssigneePicker: React.FC<{
-    todo: Todo;
-    assigneePickerVisible: boolean;
-    assigneePickerTodoId: number | null;
-    assigneePickerRef: React.RefObject<HTMLDivElement>;
-    onAssigneeClick: (e: React.MouseEvent) => void;
-    onMemberSelect: (memberId: string) => void;
-    onClearAssignee: (e: React.MouseEvent) => void;
-  }> = React.memo(
-    ({
-      todo,
-      assigneePickerVisible,
-      assigneePickerTodoId,
-      assigneePickerRef,
-      onAssigneeClick,
-      onMemberSelect,
-      onClearAssignee,
-    }) => {
-      const currentAssignee = teamworkMembers?.find((m) => m.id === todo.picOid);
+  const MemberMultiPicker: React.FC<{
+    label: string;
+    placeholder: string;
+    selectedIds: string[];
+    onChange: (nextIds: string[]) => void;
+    pickerKey: "assignee" | "watcher";
+  }> = React.useCallback(
+    ({ label, placeholder, selectedIds, onChange, pickerKey }) => {
+      const toggleMember = (memberId: string) => {
+        const next = selectedIds.includes(memberId)
+          ? selectedIds.filter((id) => id !== memberId)
+          : [...selectedIds, memberId];
+        onChange(next);
+      };
 
       return (
-        <div className={styles.assigneeWrapper}>
+        <div className={styles.memberPicker} ref={memberPickerOpen === pickerKey ? memberPickerRef : undefined}>
           <button
-            className={styles.assigneeButton}
-            onClick={onAssigneeClick}
-            title={currentAssignee ? currentAssignee.name : "选择负责人"}
+            className={styles.memberPickerButton}
+            onClick={() => setMemberPickerOpen(memberPickerOpen === pickerKey ? null : pickerKey)}
+            type="button"
           >
-            {currentAssignee ? (
-              <img src={currentAssignee.avatar} alt={currentAssignee.name} className={styles.assigneeAvatar} />
-            ) : (
-              <span>
-                <PersonIcon />
-              </span>
-            )}
+            <span className={styles.memberPickerLabel}>{label}</span>
+            <span className={styles.memberPickerValue}>
+              {selectedIds.length > 0 ? `已选择 ${selectedIds.length} 人` : placeholder}
+            </span>
+            <span className={styles.memberPickerArrow}>▾</span>
           </button>
-          {assigneePickerVisible && assigneePickerTodoId === todo.id && (
-            <div className={styles.assigneeDropdown} ref={assigneePickerRef}>
-              <div className={styles.assigneeDropdownHeader}>
-                <span>选择负责人</span>
-                {currentAssignee && (
-                  <button className={styles.clearAssigneeButton} onClick={onClearAssignee}>
-                    清除
-                  </button>
-                )}
-              </div>
-              <div className={styles.assigneeList}>
-                {teamworkMembers?.map((member) => (
-                  <div
-                    key={member.id}
-                    className={`${styles.assigneeItem} ${member.id === todo.picOid ? styles.assigneeItemSelected : ""}`}
-                    onClick={() => onMemberSelect(member.id)}
-                  >
-                    <img src={member.avatar} alt={member.name} className={styles.assigneeItemAvatar} />
-                    <span className={styles.assigneeItemName}>{member.name}</span>
-                    {member.id === todo.picOid && <span className={styles.assigneeItemCheck}>✓</span>}
-                  </div>
-                ))}
+          {memberPickerOpen === pickerKey && (
+            <div className={styles.memberPickerDropdown}>
+              <div className={styles.memberPickerDropdownHeader}>{label}</div>
+              <div className={styles.memberPickerList}>
+                {teamworkMembers?.map((member) => {
+                  const selected = selectedIds.includes(member.id);
+                  return (
+                    <div
+                      key={member.id}
+                      className={`${styles.memberPickerItem} ${selected ? styles.memberPickerItemSelected : ""}`}
+                      onClick={() => toggleMember(member.id)}
+                    >
+                      <img className={styles.memberPickerAvatar} src={member.avatar} alt={member.name} />
+                      <span className={styles.memberPickerName}>{member.name}</span>
+                      {selected && <span className={styles.memberPickerCheck}>✓</span>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
         </div>
       );
     },
+    [memberPickerOpen, teamworkMembers],
   );
-
-  // 点击外部关闭负责人选择器
-  React.useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (assigneePickerRef.current && !assigneePickerRef.current.contains(e.target as Node)) {
-        setAssigneePickerVisible(false);
-      }
-    };
-    if (assigneePickerVisible) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [assigneePickerVisible]);
 
   return ReactDOM.createPortal(
     <section className={styles.container} ref={rootRef}>
@@ -415,39 +429,106 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
             containerInfo={containerInfo}
           >
             <div className={styles.containerBody}>
-              {/* Todo 列表 */}
+              <Tab className={styles.todoTabs} items={STATUS_TABS.map((tab) => tab.label)} activeIndex={statusTabIndex} onChange={handleStatusTabChange} />
               <div className={styles.todoList}>
-                {todoList.length > 0 ? todoList.map(renderTodoItem) : <></>}
-                {/* 添加新项按钮/输入框 */}
-                {isAdding ? (
-                  <div className={styles.todoItem}>
-                    <input
-                      ref={newItemInputRef}
-                      className={styles.todoContentEditing}
-                      type="text"
-                      placeholder={msg("plugins.todoList.placeholder")}
-                      value={newItemValue}
-                      onChange={(e) => setNewItemValue(e.target.value)}
-                      onBlur={handleSaveNewItem}
-                      onKeyDown={handleNewItemKeyDown}
-                    />
-                  </div>
-                ) : (
-                  <button className={styles.addItemButton} onClick={handleStartAdding}>
-                    +
-                  </button>
-                )}
+                {filteredTodos.length > 0 ? filteredTodos.map(renderTodoItem) : <div className={styles.emptyState}>暂无任务</div>}
               </div>
-              {/* 刷新按钮 - 右下角 */}
-              <button
-                className={styles.refreshButton}
-                onClick={refreshTodoList}
-                title={msg("plugins.todoList.refresh")}
-              >
+              <button className={styles.addTaskButton} onClick={openCreateDetail}>
+                + 添加待办
+              </button>
+              <button className={styles.refreshButton} onClick={refreshTodoList} title={msg("plugins.todoList.refresh")}>
                 ↻
               </button>
             </div>
           </ExpansionBox>,
+          document.body,
+        )}
+      {detailVisible &&
+        ReactDOM.createPortal(
+          <div className={styles.detailOverlay}>
+            <div className={styles.detailModal}>
+              <div className={styles.detailHeader}>
+                <span className={styles.detailTitle}>{detailTodoId ? "任务详情" : "创建待办"}</span>
+                <button className={styles.detailClose} onClick={closeDetail}>
+                  ×
+                </button>
+              </div>
+              <div className={styles.detailBody}>
+                <div className={styles.priorityRow}>
+                  {PRIORITY_OPTIONS.map((priority) => (
+                    <button
+                      key={priority}
+                      className={`${styles.priorityOption} ${detailDraft.priority === priority ? styles.priorityOptionActive : ""}`}
+                      onClick={() => setDetailDraft((prev) => ({ ...prev, priority }))}
+                    >
+                      {priority}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  ref={detailTitleRef}
+                  className={styles.detailInput}
+                  placeholder="大体说明"
+                  value={detailDraft.title}
+                  onChange={(event) => setDetailDraft((prev) => ({ ...prev, title: event.target.value }))}
+                />
+                <textarea
+                  className={styles.detailTextarea}
+                  placeholder="具体事项"
+                  value={detailDraft.content}
+                  onChange={(event) => setDetailDraft((prev) => ({ ...prev, content: event.target.value }))}
+                />
+                <div className={styles.timeRow}>
+                  <label className={styles.timeField}>
+                    <span className={styles.timeLabel}>开始时间</span>
+                    <input
+                      type="datetime-local"
+                      className={styles.timeInput}
+                      value={detailDraft.startTime || ""}
+                      onChange={(event) => setDetailDraft((prev) => ({ ...prev, startTime: event.target.value }))}
+                    />
+                  </label>
+                  <label className={styles.timeField}>
+                    <span className={styles.timeLabel}>结束时间</span>
+                    <input
+                      type="datetime-local"
+                      className={styles.timeInput}
+                      value={detailDraft.endTime || ""}
+                      onChange={(event) => setDetailDraft((prev) => ({ ...prev, endTime: event.target.value }))}
+                    />
+                  </label>
+                </div>
+                {teamworkMembers && teamworkMembers.length > 0 && (
+                  <div className={styles.memberSection}>
+                    <MemberMultiPicker
+                      label="执行者"
+                      placeholder="选择执行人"
+                      selectedIds={detailDraft.assigneeIds}
+                      onChange={(nextIds) => setDetailDraft((prev) => ({ ...prev, assigneeIds: nextIds }))}
+                      pickerKey="assignee"
+                    />
+                    <MemberMultiPicker
+                      label="关注者"
+                      placeholder="选择关注人"
+                      selectedIds={detailDraft.watcherIds}
+                      onChange={(nextIds) => setDetailDraft((prev) => ({ ...prev, watcherIds: nextIds }))}
+                      pickerKey="watcher"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className={styles.detailFooter}>
+                <button className={styles.detailPrimary} onClick={handleSaveDetail}>
+                  {detailTodoId ? "保存" : "创建待办"}
+                </button>
+                {detailTodoId && (
+                  <button className={styles.detailSecondary} onClick={() => toggleTodoStatus(detailDraft)}>
+                    {detailDraft.status === "completed" ? "标记未完成" : "标记完成"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>,
           document.body,
         )}
     </section>,
