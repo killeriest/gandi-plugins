@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ccw-tools__edit_file",
+      "Bash(test:*)",
+      "mcp__ide__getDiagnostics"
+    ]
+  }
+}

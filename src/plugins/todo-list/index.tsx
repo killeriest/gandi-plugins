@@ -5,11 +5,11 @@ import Tooltip from "components/Tooltip";
 import Tab from "components/Tab";
 import useStorageInfo from "hooks/useStorageInfo";
 import TodoListIcon from "assets/icon--todo-list.svg";
-import FinishIcon from "assets/icon--finish.svg";
-import styles from "./styles.less";
+import TodoItemCard from "./TodoItemCard";
+import TodoDetailModal from "./TodoDetailModal";
+import styles from "./styles/index.less";
 import { RuntimeFixed, Todo, TodoPriority, TodoStatus } from "./types";
 import ScratchConfigStorage from "./configHelper";
-import PersonIcon from "assets/icon--person.svg";
 
 // 自动刷新间隔（毫秒）
 const AUTO_REFRESH_INTERVAL = 3000;
@@ -44,6 +44,7 @@ const createEmptyTodoDraft = (): Todo => ({
 const normalizeTodo = (todo: Partial<Todo> & { id: number }): Todo => {
   const content = todo.content || "";
   const legacyPicOid = (todo as any).picOid as string | undefined;
+
   return {
     id: todo.id,
     title: todo.title || content || "未命名",
@@ -51,7 +52,8 @@ const normalizeTodo = (todo: Partial<Todo> & { id: number }): Todo => {
     priority: todo.priority || "P3",
     startTime: todo.startTime,
     endTime: todo.endTime,
-    assigneeIds: todo.assigneeIds && todo.assigneeIds.length > 0 ? todo.assigneeIds : legacyPicOid ? [legacyPicOid] : [],
+    assigneeIds:
+      todo.assigneeIds && todo.assigneeIds.length > 0 ? todo.assigneeIds : legacyPicOid ? [legacyPicOid] : [],
     watcherIds: todo.watcherIds || [],
     status: todo.status || "pending",
   };
@@ -69,11 +71,10 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
   const [memberPickerOpen, setMemberPickerOpen] = React.useState<"assignee" | "watcher" | null>(null);
   const [reminderTick, setReminderTick] = React.useState(Date.now());
 
-  const rootRef = React.useRef(null);
-  const containerRef = React.useRef(null);
+  const rootRef = React.useRef<HTMLElement>(null);
+  const containerRef = React.useRef<any>(null);
   const containerInfoRef = React.useRef(containerInfo);
   const detailTitleRef = React.useRef<HTMLInputElement>(null);
-  const memberPickerRef = React.useRef<HTMLDivElement>(null);
 
   const dataRef = React.useRef(new ScratchConfigStorage(vm.runtime as RuntimeFixed, "TODO_LIST", "Todo List"));
 
@@ -90,9 +91,11 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
         JSON.stringify((item as Todo).watcherIds || []) !== JSON.stringify(normalized.watcherIds)
       );
     });
+
     if (shouldPersist) {
       dataRef.current.setItem("todolist", normalizedList);
     }
+
     return normalizedList;
   }, []);
 
@@ -104,14 +107,16 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     (draft: Todo) => {
       const title = draft.title.trim() || draft.content.trim();
       if (!title) return false;
-      const _list = getTodoList();
+
+      const list = getTodoList();
       const newTodo: Todo = {
         ...draft,
         id: Date.now(),
         title: title.trim(),
         content: draft.content.trim(),
       };
-      dataRef.current.setItem("todolist", [..._list, newTodo]);
+
+      dataRef.current.setItem("todolist", [...list, newTodo]);
       refreshTodoList();
       return true;
     },
@@ -120,10 +125,10 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
 
   const updateTodo = React.useCallback(
     (id: number, partial: Partial<Todo>) => {
-      const _list = getTodoList();
+      const list = getTodoList();
       dataRef.current.setItem(
         "todolist",
-        _list.map((item) => (item.id === id ? { ...item, ...partial } : item)),
+        list.map((item) => (item.id === id ? { ...item, ...partial } : item)),
       );
       refreshTodoList();
     },
@@ -132,10 +137,10 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
 
   const deleteTodo = React.useCallback(
     (id: number) => {
-      const _list = getTodoList();
+      const list = getTodoList();
       dataRef.current.setItem(
         "todolist",
-        _list.filter((item) => item.id !== id),
+        list.filter((item) => item.id !== id),
       );
       refreshTodoList();
     },
@@ -144,13 +149,15 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
 
   const toggleTodoStatus = React.useCallback(
     (todo: Todo) => {
-      updateTodo(todo.id, { status: todo.status === "completed" ? "pending" : "completed" });
+      updateTodo(todo.id, {
+        status: todo.status === "completed" ? "pending" : "completed",
+      });
     },
     [updateTodo],
   );
 
   const getContainerPosition = React.useCallback(() => {
-    const { x, y } = (rootRef.current as any).getBoundingClientRect();
+    const { x, y } = (rootRef.current as HTMLElement).getBoundingClientRect();
     return {
       translateX: x - containerInfoRef.current.width - 10,
       translateY: y - 6,
@@ -197,14 +204,14 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
 
   const handleSaveDetail = React.useCallback(() => {
     const title = detailDraft.title.trim() || detailDraft.content.trim();
-    if (!title) {
-      return;
-    }
+    if (!title) return;
+
     if (detailTodoId === null) {
       createTodo({ ...detailDraft, title });
     } else {
       updateTodo(detailTodoId, { ...detailDraft, title });
     }
+
     closeDetail();
   }, [closeDetail, createTodo, detailDraft, detailTodoId, updateTodo]);
 
@@ -213,7 +220,9 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
   }, []);
 
   const activeStatusFilter = STATUS_TABS[statusTabIndex]?.value || "all";
-  const filteredTodos = todoList.filter((todo) => (activeStatusFilter === "all" ? true : todo.status === activeStatusFilter));
+  const filteredTodos = todoList.filter((todo) =>
+    activeStatusFilter === "all" ? true : todo.status === activeStatusFilter,
+  );
 
   const getMemberById = React.useCallback(
     (id: string) => teamworkMembers?.find((member) => member.id === id),
@@ -224,10 +233,11 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     (memberId: string, index: number) => {
       const member = getMemberById(memberId);
       if (!member) return null;
+
       return (
         <img
           key={`${memberId}-${index}`}
-          className={styles.memberAvatar}
+          className={styles.todoCardMemberAvatar}
           src={member.avatar}
           alt={member.name}
           title={member.name}
@@ -242,6 +252,7 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
       if (!todo.endTime || todo.status === "completed") {
         return { overdue: false, soon: false };
       }
+
       const end = new Date(todo.endTime).getTime();
       if (Number.isNaN(end)) return { overdue: false, soon: false };
       if (end < reminderTick) return { overdue: true, soon: false };
@@ -263,9 +274,11 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
 
   React.useEffect(() => {
     if (!visible) return;
+
     const intervalId = setInterval(() => {
       setReminderTick(Date.now());
     }, REMINDER_REFRESH_INTERVAL);
+
     return () => clearInterval(intervalId);
   }, [visible]);
 
@@ -283,6 +296,7 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
       ],
       "",
     );
+
     return () => {};
   }, [msg, registerSettings]);
 
@@ -298,122 +312,15 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     }
   }, [detailVisible]);
 
-  React.useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (memberPickerRef.current && !memberPickerRef.current.contains(e.target as Node)) {
-        setMemberPickerOpen(null);
-      }
-    };
-    if (memberPickerOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [memberPickerOpen]);
-
-  const renderTodoItem = React.useCallback(
-    (todo: Todo) => {
-      const reminderState = computeReminderState(todo);
-      const timeLabel = todo.startTime || todo.endTime ? `${todo.startTime || ""}${todo.startTime && todo.endTime ? " ~ " : ""}${todo.endTime || ""}` : "";
-
-      return (
-        <div className={styles.todoCard} key={todo.id} onClick={() => openEditDetail(todo)}>
-          <div className={styles.todoCardHeader}>
-            <span className={`${styles.priorityBadge} ${styles[`priority-${todo.priority.toLowerCase()}`]}`}>{todo.priority}</span>
-            <span className={styles.todoTitle}>{todo.title}</span>
-            <span className={`${styles.statusBadge} ${todo.status === "completed" ? styles.statusCompleted : styles.statusPending}`}>
-              {todo.status === "completed" ? "完成" : "进行"}
-            </span>
-          </div>
-          {todo.content && <div className={styles.todoContentPreview}>{todo.content}</div>}
-          {timeLabel && (
-            <div className={styles.todoTime}>
-              <span className={styles.todoTimeIcon}>⏱</span>
-              <span>{timeLabel}</span>
-              {reminderState.overdue && <span className={styles.reminderOverdue}>已到期</span>}
-              {reminderState.soon && <span className={styles.reminderSoon}>即将到期</span>}
-            </div>
-          )}
-          <div className={styles.todoCardFooter}>
-            <div className={styles.todoMembers}>{todo.assigneeIds.slice(0, 3).map(renderMemberAvatar)}</div>
-            {todo.watcherIds.length > 0 && <span className={styles.watcherCount}>关注 {todo.watcherIds.length}</span>}
-            <div className={styles.todoActions} onClick={(event) => event.stopPropagation()}>
-              <button className={styles.todoFinishButton} onClick={() => toggleTodoStatus(todo)}>
-                {todo.status === "completed" ? "撤销" : "完成"}
-              </button>
-              <button className={styles.todoDelete} onClick={() => deleteTodo(todo.id)}>
-                <FinishIcon />
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    },
-    [computeReminderState, deleteTodo, openEditDetail, renderMemberAvatar, toggleTodoStatus],
-  );
-
-  const MemberMultiPicker: React.FC<{
-    label: string;
-    placeholder: string;
-    selectedIds: string[];
-    onChange: (nextIds: string[]) => void;
-    pickerKey: "assignee" | "watcher";
-  }> = React.useCallback(
-    ({ label, placeholder, selectedIds, onChange, pickerKey }) => {
-      const toggleMember = (memberId: string) => {
-        const next = selectedIds.includes(memberId)
-          ? selectedIds.filter((id) => id !== memberId)
-          : [...selectedIds, memberId];
-        onChange(next);
-      };
-
-      return (
-        <div className={styles.memberPicker} ref={memberPickerOpen === pickerKey ? memberPickerRef : undefined}>
-          <button
-            className={styles.memberPickerButton}
-            onClick={() => setMemberPickerOpen(memberPickerOpen === pickerKey ? null : pickerKey)}
-            type="button"
-          >
-            <span className={styles.memberPickerLabel}>{label}</span>
-            <span className={styles.memberPickerValue}>
-              {selectedIds.length > 0 ? `已选择 ${selectedIds.length} 人` : placeholder}
-            </span>
-            <span className={styles.memberPickerArrow}>▾</span>
-          </button>
-          {memberPickerOpen === pickerKey && (
-            <div className={styles.memberPickerDropdown}>
-              <div className={styles.memberPickerDropdownHeader}>{label}</div>
-              <div className={styles.memberPickerList}>
-                {teamworkMembers?.map((member) => {
-                  const selected = selectedIds.includes(member.id);
-                  return (
-                    <div
-                      key={member.id}
-                      className={`${styles.memberPickerItem} ${selected ? styles.memberPickerItemSelected : ""}`}
-                      onClick={() => toggleMember(member.id)}
-                    >
-                      <img className={styles.memberPickerAvatar} src={member.avatar} alt={member.name} />
-                      <span className={styles.memberPickerName}>{member.name}</span>
-                      {selected && <span className={styles.memberPickerCheck}>✓</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    },
-    [memberPickerOpen, teamworkMembers],
-  );
-
   return ReactDOM.createPortal(
-    <section className={styles.container} ref={rootRef}>
+    <section className={styles.todoPlugin} ref={rootRef}>
       <Tooltip
-        className={styles.icon}
+        className={styles.todoPluginIcon}
         icon={<TodoListIcon />}
         onClick={handleShow}
         tipText={msg("plugins.todoList.title")}
       />
+
       {visible &&
         ReactDOM.createPortal(
           <ExpansionBox
@@ -428,107 +335,66 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
             onSizeChange={handleSizeChange}
             containerInfo={containerInfo}
           >
-            <div className={styles.containerBody}>
-              <Tab className={styles.todoTabs} items={STATUS_TABS.map((tab) => tab.label)} activeIndex={statusTabIndex} onChange={handleStatusTabChange} />
-              <div className={styles.todoList}>
-                {filteredTodos.length > 0 ? filteredTodos.map(renderTodoItem) : <div className={styles.emptyState}>暂无任务</div>}
+            <div className={styles.todoPluginPanelBody}>
+              <Tab
+                className={styles.todoPluginTabs}
+                items={STATUS_TABS.map((tab) => tab.label)}
+                activeIndex={statusTabIndex}
+                onChange={handleStatusTabChange}
+              />
+
+              <div className={styles.todoPluginList}>
+                {filteredTodos.length > 0 ? (
+                  filteredTodos.map((todo) => (
+                    <TodoItemCard
+                      key={todo.id}
+                      todo={todo}
+                      reminderState={computeReminderState(todo)}
+                      assigneeAvatars={todo.assigneeIds
+                        .slice(0, 3)
+                        .map((memberId, index) => renderMemberAvatar(memberId, index))
+                        .filter(Boolean)}
+                      onEdit={openEditDetail}
+                      onToggleStatus={toggleTodoStatus}
+                      onDelete={deleteTodo}
+                    />
+                  ))
+                ) : (
+                  <></>
+                )}
+                <button className={styles.todoPluginAddButton} onClick={openCreateDetail}>
+                  + 添加待办
+                </button>
               </div>
-              <button className={styles.addTaskButton} onClick={openCreateDetail}>
-                + 添加待办
-              </button>
-              <button className={styles.refreshButton} onClick={refreshTodoList} title={msg("plugins.todoList.refresh")}>
+
+              <button
+                className={styles.todoPluginRefreshButton}
+                onClick={refreshTodoList}
+                title={msg("plugins.todoList.refresh")}
+              >
                 ↻
               </button>
             </div>
           </ExpansionBox>,
           document.body,
         )}
+
       {detailVisible &&
         ReactDOM.createPortal(
-          <div className={styles.detailOverlay}>
-            <div className={styles.detailModal}>
-              <div className={styles.detailHeader}>
-                <span className={styles.detailTitle}>{detailTodoId ? "任务详情" : "创建待办"}</span>
-                <button className={styles.detailClose} onClick={closeDetail}>
-                  ×
-                </button>
-              </div>
-              <div className={styles.detailBody}>
-                <div className={styles.priorityRow}>
-                  {PRIORITY_OPTIONS.map((priority) => (
-                    <button
-                      key={priority}
-                      className={`${styles.priorityOption} ${detailDraft.priority === priority ? styles.priorityOptionActive : ""}`}
-                      onClick={() => setDetailDraft((prev) => ({ ...prev, priority }))}
-                    >
-                      {priority}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  ref={detailTitleRef}
-                  className={styles.detailInput}
-                  placeholder="大体说明"
-                  value={detailDraft.title}
-                  onChange={(event) => setDetailDraft((prev) => ({ ...prev, title: event.target.value }))}
-                />
-                <textarea
-                  className={styles.detailTextarea}
-                  placeholder="具体事项"
-                  value={detailDraft.content}
-                  onChange={(event) => setDetailDraft((prev) => ({ ...prev, content: event.target.value }))}
-                />
-                <div className={styles.timeRow}>
-                  <label className={styles.timeField}>
-                    <span className={styles.timeLabel}>开始时间</span>
-                    <input
-                      type="datetime-local"
-                      className={styles.timeInput}
-                      value={detailDraft.startTime || ""}
-                      onChange={(event) => setDetailDraft((prev) => ({ ...prev, startTime: event.target.value }))}
-                    />
-                  </label>
-                  <label className={styles.timeField}>
-                    <span className={styles.timeLabel}>结束时间</span>
-                    <input
-                      type="datetime-local"
-                      className={styles.timeInput}
-                      value={detailDraft.endTime || ""}
-                      onChange={(event) => setDetailDraft((prev) => ({ ...prev, endTime: event.target.value }))}
-                    />
-                  </label>
-                </div>
-                {teamworkMembers && teamworkMembers.length > 0 && (
-                  <div className={styles.memberSection}>
-                    <MemberMultiPicker
-                      label="执行者"
-                      placeholder="选择执行人"
-                      selectedIds={detailDraft.assigneeIds}
-                      onChange={(nextIds) => setDetailDraft((prev) => ({ ...prev, assigneeIds: nextIds }))}
-                      pickerKey="assignee"
-                    />
-                    <MemberMultiPicker
-                      label="关注者"
-                      placeholder="选择关注人"
-                      selectedIds={detailDraft.watcherIds}
-                      onChange={(nextIds) => setDetailDraft((prev) => ({ ...prev, watcherIds: nextIds }))}
-                      pickerKey="watcher"
-                    />
-                  </div>
-                )}
-              </div>
-              <div className={styles.detailFooter}>
-                <button className={styles.detailPrimary} onClick={handleSaveDetail}>
-                  {detailTodoId ? "保存" : "创建待办"}
-                </button>
-                {detailTodoId && (
-                  <button className={styles.detailSecondary} onClick={() => toggleTodoStatus(detailDraft)}>
-                    {detailDraft.status === "completed" ? "标记未完成" : "标记完成"}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>,
+          <TodoDetailModal
+            visible={detailVisible}
+            detailTodoId={detailTodoId}
+            detailDraft={detailDraft}
+            priorityOptions={PRIORITY_OPTIONS}
+            teamworkMembers={teamworkMembers}
+            detailTitleRef={detailTitleRef}
+            memberPickerOpen={memberPickerOpen}
+            setMemberPickerOpen={setMemberPickerOpen}
+            onChangeDraft={setDetailDraft}
+            onClose={closeDetail}
+            onSave={handleSaveDetail}
+            onToggleStatus={toggleTodoStatus}
+          />,
           document.body,
         )}
     </section>,
