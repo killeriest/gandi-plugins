@@ -5,6 +5,7 @@ import styles from "./styles/index.less";
 
 interface TodoDetailModalProps {
   visible: boolean;
+  msg: (id: string) => string;
   detailTodoId: number | null;
   detailDraft: Todo;
   priorityOptions: TodoPriority[];
@@ -22,6 +23,7 @@ const TITLE_ERROR_TIMEOUT = 3000;
 
 const TodoDetailModal: React.FC<TodoDetailModalProps> = ({
   visible,
+  msg,
   detailTodoId,
   detailDraft,
   priorityOptions,
@@ -76,7 +78,9 @@ const TodoDetailModal: React.FC<TodoDetailModalProps> = ({
     <div className={styles.todoDetail}>
       <div className={styles.todoDetailModal}>
         <div className={styles.todoDetailHeader}>
-          <span className={styles.todoDetailTitle}>{detailTodoId ? "任务详情" : "创建待办"}</span>
+          <span className={styles.todoDetailTitle}>
+            {detailTodoId ? msg("plugins.todoList.detail.editTitle") : msg("plugins.todoList.detail.createTitle")}
+          </span>
           <button className={styles.todoDetailClose} onClick={onClose}>
             ×
           </button>
@@ -103,30 +107,30 @@ const TodoDetailModal: React.FC<TodoDetailModalProps> = ({
           <input
             ref={detailTitleRef}
             className={`${styles.todoDetailInput}${titleError ? ` ${styles.todoDetailInputError}` : ""}`}
-            placeholder="标题（必填）"
+            placeholder={msg("plugins.todoList.detail.titlePlaceholder")}
             value={detailDraft.title}
             onChange={handleTitleChange}
           />
 
           <textarea
             className={styles.todoDetailTextarea}
-            placeholder="具体事项"
+            placeholder={msg("plugins.todoList.detail.contentPlaceholder")}
             value={detailDraft.content}
             onChange={(event) => onChangeDraft((prev) => ({ ...prev, content: event.target.value }))}
           />
 
           <div className={styles.todoDetailTimeRow}>
             <label className={styles.todoDetailTimeField}>
-              <span className={styles.todoDetailTimeLabel}>开始时间</span>
+              <span className={styles.todoDetailTimeLabel}>{msg("plugins.todoList.detail.startTime")}</span>
               <input
                 type="datetime-local"
                 className={styles.todoDetailTimeInput}
-                value={detailDraft.startTime || ""}
+                value={detailDraft.startTime || Date.now()}
                 onChange={(event) => onChangeDraft((prev) => ({ ...prev, startTime: event.target.value }))}
               />
             </label>
             <label className={styles.todoDetailTimeField}>
-              <span className={styles.todoDetailTimeLabel}>结束时间</span>
+              <span className={styles.todoDetailTimeLabel}>{msg("plugins.todoList.detail.endTime")}</span>
               <input
                 type="datetime-local"
                 className={styles.todoDetailTimeInput}
@@ -139,8 +143,9 @@ const TodoDetailModal: React.FC<TodoDetailModalProps> = ({
           {teamworkMembers && teamworkMembers.length > 0 && (
             <div className={styles.todoDetailMemberSection}>
               <MemberMultiPicker
-                label="执行者"
-                placeholder="选择执行人"
+                label={msg("plugins.todoList.detail.assignee")}
+                placeholder={msg("plugins.todoList.detail.assigneePlaceholder")}
+                msg={msg}
                 selectedIds={detailDraft.assigneeIds}
                 onChange={(nextIds) => onChangeDraft((prev) => ({ ...prev, assigneeIds: nextIds }))}
                 members={teamworkMembers}
@@ -150,8 +155,9 @@ const TodoDetailModal: React.FC<TodoDetailModalProps> = ({
               />
 
               <MemberMultiPicker
-                label="关注者"
-                placeholder="选择关注人"
+                label={msg("plugins.todoList.detail.watcher")}
+                placeholder={msg("plugins.todoList.detail.watcherPlaceholder")}
+                msg={msg}
                 selectedIds={detailDraft.watcherIds}
                 onChange={(nextIds) => onChangeDraft((prev) => ({ ...prev, watcherIds: nextIds }))}
                 members={teamworkMembers}
@@ -165,11 +171,13 @@ const TodoDetailModal: React.FC<TodoDetailModalProps> = ({
 
         <div className={styles.todoDetailFooter}>
           <button className={styles.todoDetailPrimary} onClick={handleSave}>
-            {detailTodoId ? "保存" : "创建待办"}
+            {detailTodoId ? msg("plugins.todoList.detail.save") : msg("plugins.todoList.detail.createTitle")}
           </button>
           {detailTodoId && (
             <button className={styles.todoDetailSecondary} onClick={() => onToggleStatus(detailDraft)}>
-              {detailDraft.status === "completed" ? "标记未完成" : "标记完成"}
+              {detailDraft.status === "completed"
+                ? msg("plugins.todoList.detail.markPending")
+                : msg("plugins.todoList.detail.markCompleted")}
             </button>
           )}
         </div>

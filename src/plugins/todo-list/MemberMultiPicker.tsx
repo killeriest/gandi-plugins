@@ -5,6 +5,7 @@ import styles from "./styles/index.less";
 interface MemberMultiPickerProps {
   label: string;
   placeholder: string;
+  msg: (id: string) => string;
   selectedIds: string[];
   onChange: (nextIds: string[]) => void;
   members: readonly TeamMember[] | null;
@@ -16,6 +17,7 @@ interface MemberMultiPickerProps {
 const MemberMultiPicker: React.FC<MemberMultiPickerProps> = ({
   label,
   placeholder,
+  msg,
   selectedIds,
   onChange,
   members,
@@ -73,7 +75,7 @@ const MemberMultiPicker: React.FC<MemberMultiPickerProps> = ({
       <button ref={buttonRef} className={styles.todoDetailMemberPickerButton} onClick={onToggle} type="button">
         <span className={styles.todoDetailMemberPickerLabel}>{label}</span>
         <span className={styles.todoDetailMemberPickerValue}>
-          {selectedIds.length > 0 ? `已选择 ${selectedIds.length} 人` : placeholder}
+          {selectedIds.length > 0 ? msg("plugins.todoList.memberPicker.selectedCount").replace("{count}", String(selectedIds.length)) : placeholder}
         </span>
         <span className={styles.todoDetailMemberPickerArrow}>▾</span>
       </button>

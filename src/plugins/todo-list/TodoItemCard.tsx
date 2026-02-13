@@ -5,6 +5,7 @@ import styles from "./styles/index.less";
 
 interface TodoItemCardProps {
   todo: Todo;
+  msg: (id: string) => string;
   assigneeAvatars: React.ReactNode[];
   reminderState: {
     overdue: boolean;
@@ -15,7 +16,7 @@ interface TodoItemCardProps {
   onDelete: (id: number) => void;
 }
 
-const TodoItemCard: React.FC<TodoItemCardProps> = ({ todo, assigneeAvatars, reminderState, onEdit, onToggleStatus, onDelete }) => {
+const TodoItemCard: React.FC<TodoItemCardProps> = ({ todo, msg, assigneeAvatars, reminderState, onEdit, onToggleStatus, onDelete }) => {
   const timeLabel = todo.startTime || todo.endTime ? `${todo.startTime || ""}${todo.startTime && todo.endTime ? " ~ " : ""}${todo.endTime || ""}` : "";
 
   return (
@@ -28,7 +29,7 @@ const TodoItemCard: React.FC<TodoItemCardProps> = ({ todo, assigneeAvatars, remi
             todo.status === "completed" ? styles.todoCardStatusCompleted : styles.todoCardStatusPending
           }`}
         >
-          {todo.status === "completed" ? "完成" : "进行"}
+          {todo.status === "completed" ? msg("plugins.todoList.card.completed") : msg("plugins.todoList.card.inProgress")}
         </span>
       </div>
 
@@ -38,8 +39,8 @@ const TodoItemCard: React.FC<TodoItemCardProps> = ({ todo, assigneeAvatars, remi
         <div className={styles.todoCardTime}>
           <span className={styles.todoCardTimeIcon}>⏱</span>
           <span>{timeLabel}</span>
-          {reminderState.overdue && <span className={styles.todoCardReminderOverdue}>已到期</span>}
-          {reminderState.soon && <span className={styles.todoCardReminderSoon}>即将到期</span>}
+          {reminderState.overdue && <span className={styles.todoCardReminderOverdue}>{msg("plugins.todoList.card.overdue")}</span>}
+          {reminderState.soon && <span className={styles.todoCardReminderSoon}>{msg("plugins.todoList.card.dueSoon")}</span>}
         </div>
       )}
 
@@ -54,11 +55,11 @@ const TodoItemCard: React.FC<TodoItemCardProps> = ({ todo, assigneeAvatars, remi
           <FinishIcon />
         </button>
         <div className={styles.todoCardMembers}>{assigneeAvatars}</div>
-        {todo.watcherIds.length > 0 && <span className={styles.todoCardWatcherCount}>关注 {todo.watcherIds.length}</span>}
+        {todo.watcherIds.length > 0 && <span className={styles.todoCardWatcherCount}>{msg("plugins.todoList.card.watchers")} {todo.watcherIds.length}</span>}
 
         <div className={styles.todoCardActions} onClick={(event) => event.stopPropagation()}>
           <button className={styles.todoCardFinishButton} onClick={() => onToggleStatus(todo)}>
-            {todo.status === "completed" ? "撤销" : "完成"}
+            {todo.status === "completed" ? msg("plugins.todoList.card.undo") : msg("plugins.todoList.card.complete")}
           </button>
         </div>
       </div>

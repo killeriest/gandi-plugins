@@ -3,7 +3,8 @@
     "allow": [
       "mcp__ccw-tools__edit_file",
       "Bash(test:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "WebFetch(domain:gandi-ui.ccw.site)"
     ]
   }
 }

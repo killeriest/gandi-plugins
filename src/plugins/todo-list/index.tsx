@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as ReactDOM from "react-dom";
+import { GandiProvider, useNotification } from "@gandi-ide/gandi-ui";
 import ExpansionBox, { ExpansionRect } from "components/ExpansionBox";
 import Tooltip from "components/Tooltip";
 import Tab from "components/Tab";
@@ -15,12 +16,25 @@ import ScratchConfigStorage from "./configHelper";
 const AUTO_REFRESH_INTERVAL = 3000;
 const REMINDER_REFRESH_INTERVAL = 60000;
 const PRIORITY_OPTIONS: TodoPriority[] = ["P0", "P1", "P2", "P3", "P4", "P5"];
-const STATUS_TABS: Array<{ label: string; value: "all" | TodoStatus }> = [
-  { label: "全部完成", value: "all" },
-  { label: "待完成", value: "pending" },
-  { label: "已完成", value: "completed" },
+const STATUS_TABS: Array<{ msgKey: string; value: "all" | TodoStatus }> = [
+  { msgKey: "plugins.todoList.statusTab.all", value: "all" },
+  { msgKey: "plugins.todoList.statusTab.pending", value: "pending" },
+  { msgKey: "plugins.todoList.statusTab.completed", value: "completed" },
 ];
 const REMINDER_SOON_MS = 60 * 60 * 1000;
+
+// 比例提醒阈值（基于任务总时长的已用比例）
+const PROPORTIONAL_THRESHOLDS = [
+  { key: "half", ratio: 0.5, status: "info" as const, msgKey: "plugins.todoList.reminder.halfTime" },
+  { key: "three-quarter", ratio: 0.75, status: "warning" as const, msgKey: "plugins.todoList.reminder.dueSoon" },
+  { key: "overdue", ratio: 1.0, status: "error" as const, msgKey: "plugins.todoList.reminder.overdue" },
+];
+
+// 无开始时间时的绝对时间阈值
+const ABSOLUTE_THRESHOLDS = [
+  { key: "1h-before", msBefore: 60 * 60 * 1000, status: "warning" as const, msgKey: "plugins.todoList.reminder.dueSoon" },
+  { key: "overdue", msBefore: 0, status: "error" as const, msgKey: "plugins.todoList.reminder.overdue" },
+];
 
 const DEFAULT_CONTAINER_INFO = {
   width: 300,
@@ -41,13 +55,13 @@ const createEmptyTodoDraft = (): Todo => ({
   status: "pending",
 });
 
-const normalizeTodo = (todo: Partial<Todo> & { id: number }): Todo => {
+const normalizeTodo = (todo: Partial<Todo> & { id: number }, untitledText: string): Todo => {
   const content = todo.content || "";
   const legacyPicOid = (todo as any).picOid as string | undefined;
 
   return {
     id: todo.id,
-    title: todo.title || content || "未命名",
+    title: todo.title || content || untitledText,
     content,
     priority: todo.priority || "P3",
     startTime: todo.startTime,
@@ -57,6 +71,83 @@ const normalizeTodo = (todo: Partial<Todo> & { id: number }): Todo => {
     watcherIds: todo.watcherIds || [],
     status: todo.status || "pending",
   };
+};
+
+interface TodoReminderProps {
+  dataRef: React.MutableRefObject<ScratchConfigStorage>;
+  currentUserId: string | undefined;
+  msg: (id: string) => string;
+}
+
+const TodoReminder: React.FC<TodoReminderProps> = ({ dataRef, currentUserId, msg }) => {
+  const notify = useNotification();
+  const sentRef = React.useRef<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    const checkReminders = () => {
+      const rawList = (dataRef.current.getItem("todolist") as Array<Todo>) || [];
+      const now = Date.now();
+
+      for (const todo of rawList) {
+        if (todo.status === "completed" || !todo.endTime) continue;
+
+        // 仅提醒当前用户是执行人的任务；无协作环境时提醒所有任务
+        if (currentUserId && todo.assigneeIds?.length > 0 && !todo.assigneeIds.includes(currentUserId)) continue;
+
+        const endMs = new Date(todo.endTime).getTime();
+        if (Number.isNaN(endMs)) continue;
+
+        const thresholds =
+          todo.startTime && !Number.isNaN(new Date(todo.startTime).getTime())
+            ? PROPORTIONAL_THRESHOLDS
+            : null;
+
+        if (thresholds) {
+          const startMs = new Date(todo.startTime!).getTime();
+          if (startMs >= endMs) continue;
+          const totalDuration = endMs - startMs;
+          const elapsed = now - startMs;
+          const progress = elapsed / totalDuration;
+
+          for (const t of thresholds) {
+            const key = `${todo.id}-${t.key}`;
+            if (sentRef.current.has(key)) continue;
+            if (progress >= t.ratio) {
+              sentRef.current.add(key);
+              notify({
+                title: msg(t.msgKey),
+                description: `[${todo.priority}] ${todo.title}`,
+                status: t.status,
+                isClosable: true,
+                duration: 8000,
+              });
+            }
+          }
+        } else {
+          for (const t of ABSOLUTE_THRESHOLDS) {
+            const key = `${todo.id}-abs-${t.key}`;
+            if (sentRef.current.has(key)) continue;
+            if (now >= endMs - t.msBefore) {
+              sentRef.current.add(key);
+              notify({
+                title: msg(t.msgKey),
+                description: `[${todo.priority}] ${todo.title}`,
+                status: t.status,
+                isClosable: true,
+                duration: 8000,
+              });
+            }
+          }
+        }
+      }
+    };
+
+    checkReminders();
+    const intervalId = setInterval(checkReminders, REMINDER_REFRESH_INTERVAL);
+    return () => clearInterval(intervalId);
+  }, [dataRef, currentUserId, notify, msg]);
+
+  return null;
 };
 
 const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamworkManager }) => {
@@ -80,7 +171,8 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
 
   const getTodoList = React.useCallback((): Todo[] => {
     const rawList = (dataRef.current.getItem("todolist") as Array<Partial<Todo>>) || [];
-    const normalizedList = rawList.map((item) => normalizeTodo(item as Todo));
+    const untitledText = msg("plugins.todoList.untitled");
+    const normalizedList = rawList.map((item) => normalizeTodo(item as Todo, untitledText));
     const shouldPersist = rawList.some((item, index) => {
       const normalized = normalizedList[index];
       return (
@@ -97,7 +189,7 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
     }
 
     return normalizedList;
-  }, []);
+  }, [msg]);
 
   const refreshTodoList = React.useCallback(() => {
     setTodoList(getTodoList());
@@ -314,6 +406,13 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
 
   return ReactDOM.createPortal(
     <section className={styles.todoPlugin} ref={rootRef}>
+      {ReactDOM.createPortal(
+        <GandiProvider>
+          <TodoReminder dataRef={dataRef} currentUserId={teamworkManager?.userInfo?.id} msg={msg} />
+        </GandiProvider>,
+        document.body,
+      )}
+
       <Tooltip
         className={styles.todoPluginIcon}
         icon={<TodoListIcon />}
@@ -338,7 +437,7 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
             <div className={styles.todoPluginPanelBody}>
               <Tab
                 className={styles.todoPluginTabs}
-                items={STATUS_TABS.map((tab) => tab.label)}
+                items={STATUS_TABS.map((tab) => msg(tab.msgKey))}
                 activeIndex={statusTabIndex}
                 onChange={handleStatusTabChange}
               />
@@ -349,6 +448,7 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
                     <TodoItemCard
                       key={todo.id}
                       todo={todo}
+                      msg={msg}
                       reminderState={computeReminderState(todo)}
                       assigneeAvatars={todo.assigneeIds
                         .slice(0, 3)
@@ -363,7 +463,7 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
                   <></>
                 )}
                 <button className={styles.todoPluginAddButton} onClick={openCreateDetail}>
-                  + 添加待办
+                  {msg("plugins.todoList.addTodo")}
                 </button>
               </div>
 
@@ -383,6 +483,7 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
         ReactDOM.createPortal(
           <TodoDetailModal
             visible={detailVisible}
+            msg={msg}
             detailTodoId={detailTodoId}
             detailDraft={detailDraft}
             priorityOptions={PRIORITY_OPTIONS}
