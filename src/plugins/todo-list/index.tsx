@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as ReactDOM from "react-dom";
-import { GandiProvider, useNotification } from "@gandi-ide/gandi-ui";
+import toast, { Toaster } from "react-hot-toast";
 import ExpansionBox, { ExpansionRect } from "components/ExpansionBox";
 import Tooltip from "components/Tooltip";
 import Tab from "components/Tab";
@@ -80,7 +80,6 @@ interface TodoReminderProps {
 }
 
 const TodoReminder: React.FC<TodoReminderProps> = ({ dataRef, currentUserId, msg }) => {
-  const notify = useNotification();
   const sentRef = React.useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
@@ -114,13 +113,8 @@ const TodoReminder: React.FC<TodoReminderProps> = ({ dataRef, currentUserId, msg
             if (sentRef.current.has(key)) continue;
             if (progress >= t.ratio) {
               sentRef.current.add(key);
-              notify({
-                title: msg(t.msgKey),
-                description: `[${todo.priority}] ${todo.title}`,
-                status: t.status,
-                isClosable: true,
-                duration: 8000,
-              });
+              const message = `${msg(t.msgKey)}: [${todo.priority}] ${todo.title}`;
+              t.status === "error" ? toast.error(message, { duration: 8000 }) : toast(message, { duration: 8000 });
             }
           }
         } else {
@@ -129,13 +123,8 @@ const TodoReminder: React.FC<TodoReminderProps> = ({ dataRef, currentUserId, msg
             if (sentRef.current.has(key)) continue;
             if (now >= endMs - t.msBefore) {
               sentRef.current.add(key);
-              notify({
-                title: msg(t.msgKey),
-                description: `[${todo.priority}] ${todo.title}`,
-                status: t.status,
-                isClosable: true,
-                duration: 8000,
-              });
+              const message = `${msg(t.msgKey)}: [${todo.priority}] ${todo.title}`;
+              t.status === "error" ? toast.error(message, { duration: 8000 }) : toast(message, { duration: 8000 });
             }
           }
         }
@@ -145,7 +134,7 @@ const TodoReminder: React.FC<TodoReminderProps> = ({ dataRef, currentUserId, msg
     checkReminders();
     const intervalId = setInterval(checkReminders, REMINDER_REFRESH_INTERVAL);
     return () => clearInterval(intervalId);
-  }, [dataRef, currentUserId, notify, msg]);
+  }, [dataRef, currentUserId, msg]);
 
   return null;
 };
@@ -407,11 +396,10 @@ const TodoList: React.FC<PluginContext> = ({ msg, registerSettings, vm, teamwork
   return ReactDOM.createPortal(
     <section className={styles.todoPlugin} ref={rootRef}>
       {ReactDOM.createPortal(
-        <GandiProvider>
-          <TodoReminder dataRef={dataRef} currentUserId={teamworkManager?.userInfo?.id} msg={msg} />
-        </GandiProvider>,
+        <TodoReminder dataRef={dataRef} currentUserId={teamworkManager?.userInfo?.id} msg={msg} />,
         document.body,
       )}
+      <Toaster />
 
       <Tooltip
         className={styles.todoPluginIcon}
