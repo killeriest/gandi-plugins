@@ -1,0 +1,92 @@
+.container {
+  padding: 8px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.groupList {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 2px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+  }
+
+  &.active {
+    background-color: rgba(25, 118, 210, 0.08);
+    border-left: 3px solid #1976d2;
+  }
+}
+
+.itemText {
+  font-size: 14px;
+}
+
+.groupName {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 8px;
+}
+
+.groupNameText {
+  font-size: 14px;
+  user-select: none;
+}
+
+.divider {
+  height: 1px;
+  background-color: rgba(0, 0, 0, 0.12);
+  margin: 8px 0;
+}
+
+.addGroup {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.addButton {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background-color: #1976d2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+
+  &:hover {
+    background-color: #1565c0;
+  }
+}
+
+.icon {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+
+  &:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+  }
+}

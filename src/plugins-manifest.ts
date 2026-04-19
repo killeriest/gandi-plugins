@@ -24,6 +24,7 @@ import mobileCodeBatchSelect from "src/plugins/mobile-code-batch-select/manifest
 import cleanPro from "src/plugins/clean-pro/manifest";
 import witcatInfiniteCanvas from "src/plugins/witcat-infinite-canvas/manifest";
 import findDefinition from "src/plugins/find-definition/manifest";
+import editorOptimization from "src/plugins/editor-optimization/manifest";
 
 export default {
   folder,
@@ -52,4 +53,5 @@ export default {
   "clean-pro": cleanPro,
   "witcat-infinite-canvas": witcatInfiniteCanvas,
   "find-definition": findDefinition,
+  "editor-optimization": editorOptimization,
 };
