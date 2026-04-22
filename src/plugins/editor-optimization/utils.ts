@@ -100,6 +100,7 @@ export function setBlockGroup(block: any, groupId: string, targetId?: string) {
   return `${groupId}|EdiOpt|${groupName}`;
 }
 // 从 XML 注释恢复分组信息
+
 export function restoreBlockGroupFromXml(blockNode: Element, targetId: string) {
   const blockId = blockNode.getAttribute('id');
   if (!blockId) return;

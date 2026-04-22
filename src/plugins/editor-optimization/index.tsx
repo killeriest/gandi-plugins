@@ -11,13 +11,27 @@ import {
   setGlobalVM, ALL_GROUPS_ID, UNGROUPED_ID
 } from "./utils";
 
-// 内联图标组件
 const AddIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>);
 const DeleteIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>);
 const CheckIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>);
 const GroupIcon = () => (<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg>);
 
 const DEFAULT_CONTAINER_INFO = { width: 280, height: 400, translateX: 72, translateY: 60 };
+
+declare global {
+  interface Window {
+    __EDITOR_OPT_FAST_CLEAR_ENABLED__?: boolean;
+    __FAST_CLEAR_MODE__?: boolean;
+    __ORIGINAL_DISPOSE_SVG__?: any;
+    __ORIGINAL_CLEAR_WS_SVG__?: any;
+    __SKIP_LAYOUT_UPDATE__?: boolean;
+    __ENABLE_FAST_LOAD__?: boolean;
+    __BATCH_VARIABLE_LOAD__?: boolean;
+    __FILTER_TOP_BLOCKS_FOR_SERIALIZATION__?: boolean;
+    __ENABLE_DRAG_OPTIMIZE__?: boolean;
+    __FAST_DRAG_MODE__?: boolean;
+  }
+}
 
 function getRootBlock(block: any): any {
   let r = block;
@@ -49,7 +63,6 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
   const [containerInfo, setContainerInfo] = React.useState<ExpansionRect>(DEFAULT_CONTAINER_INFO);
   const containerInfoRef = React.useRef(containerInfo);
 
-  // 初始化全局 VM
   React.useEffect(() => { setGlobalVM(vm); }, [vm]);
   React.useEffect(() => { loadFromLocalStorage(); }, []);
 
@@ -59,7 +72,6 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
     setActiveGroupIdState(getActiveGroupId(targetId));
   }, [targetId]);
 
-  // 监听当前编辑目标的变化
   React.useEffect(() => {
     const update = () => {
       const id = (vm as any).editingTarget?.id || (vm as any).runtime?._editingTarget?.id || null;
@@ -111,7 +123,60 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
     refreshGroups();
   };
 
-  // ========== 劫持 Blockly 加载逻辑 ==========
+  //设置注册
+  React.useEffect(() => {
+    if (!registerSettings) return;
+    const dispose = registerSettings(
+      '积木分组&编辑器优化',
+      'plugin-editor-optimization',
+      [
+        {
+          key: 'group',
+          label: '积木分组&编辑器优化',
+          description: '提供角色积木分组功能，同时优化编辑器性能。',
+          items: [
+            {
+              key: 'enableFastClear',
+              type: 'switch',
+              label: '[实验]启用切出优化',
+              description: '极大优化切出大型角色时的效率。',
+              value: false,
+              onChange: (v: boolean) => {
+                window.__EDITOR_OPT_FAST_CLEAR_ENABLED__ = v;
+                console.log(`[快速清理] 开关: ${v}`);
+              }
+            },
+            {
+              key: 'enableFastLoad',
+              type: 'switch',
+              label: '[实验]启用切入优化',
+              description: '适当优化切入大型角色时的效率。',
+              value: false,
+              onChange: (v: boolean) => {
+                window.__ENABLE_FAST_LOAD__ = v;
+                console.log(`[切入优化] 开关: ${v}`);
+              }
+            },
+            {
+              key: 'enableDragOptimize',
+              type: 'switch',
+              label: '[实验]启用拖拽优化',
+              description: '修改拖拽算法，可能优化拖拽积木区时的效率',
+              value: false,
+              onChange: (v: boolean) => {
+                window.__ENABLE_DRAG_OPTIMIZE__ = v;
+                console.log(`[拖拽优化] 开关: ${v}`);
+              }
+            }
+          ]
+        }
+      ],
+      <GroupIcon />
+    );
+    return () => dispose.dispose();
+  }, [registerSettings]);
+
+  //分组劫持
   React.useEffect(() => {
     if (!blockly || !workspace || !vm) return;
 
@@ -133,40 +198,127 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
       const root = doc.documentElement;
       if (!root) return origClear.call(this, xml, ...args);
 
-      // 恢复分组信息（从 comment）
+      // 恢复分组信息
       Array.from(root.children)
         .filter(c => c.tagName.toLowerCase() === 'block')
         .forEach(n => restoreBlockGroupFromXml(n as Element, targetId));
-      
-      setTimeout(() => refreshGroups(), 20);
 
-      if (activeId === ALL_GROUPS_ID) {
-        return origClear.call(this, xml, ...args);
-      }
+      //切入优化-延迟布局
+      const enableFastLoad = window.__ENABLE_FAST_LOAD__;
+      const blockCount = root.querySelectorAll('block').length;
+      const shouldOptimize = enableFastLoad && blockCount > 200;
 
-      if (origClearWs) origClearWs.call(blockly.Xml, tw);
-      else tw.getAllBlocks?.().forEach((b: any) => b.dispose?.());
-
-      const topBlocks = extractTopLevelBlocks(xmlString);
-      topBlocks.forEach(node => {
-        const bid = node.getAttribute('id');
-        if (!bid) return;
-        if (getBlockGroup({ id: bid }) === activeId) {
-          try {
-            const b = origDom.call(blockly.Xml, node.cloneNode(true), tw);
-            if (b) {
-              b.moveBy(parseFloat(node.getAttribute('x') || '0'), parseFloat(node.getAttribute('y') || '0'));
-            }
-          } catch { }
+      if (shouldOptimize) {
+        window.__SKIP_LAYOUT_UPDATE__ = true;
+        const injectionDiv = workspace.getInjectionDiv();
+        if (injectionDiv) {
+          injectionDiv.classList.add('gandi-fastload-animation');
+          injectionDiv.classList.add('gandi-fastload-contain');
         }
-      });
-      tw.scrollCenter?.();
-      return tw;
+      }
+      // 额外清理所有注释，防止残留
+if (typeof tw.getTopComments === 'function') {
+  const comments = tw.getTopComments(true);
+  comments.forEach((comment: any) => {
+    if (comment.dispose) {
+      comment.dispose();
+    }
+  });
+} else if ((tw as any).commentDB_) {
+  Object.values((tw as any).commentDB_).forEach((comment: any) => {
+    if (comment.dispose) {
+      comment.dispose();
+    }
+  });
+}
+// 如果仍然有 DOM 残留，强制移除画布中所有带注释类名的元素
+const canvas = tw.getCanvas();
+if (canvas) {
+  const commentElements = canvas.querySelectorAll('.scratchCommentTopBar, .blocklyComment');
+  commentElements.forEach((el: Element) => el.remove());
+} 
+      const scheduleLayoutReset = () => {
+      if (!shouldOptimize) return;
+      setTimeout(() => {
+        const startFinal = performance.now();
+
+        // 先恢复标志，让后续 render 正常工作
+        window.__SKIP_LAYOUT_UPDATE__ = false;
+
+        // 强制所有积木重新渲染以修复字段显示
+        const allBlocks = tw.getAllBlocks(false) as any[];
+        for (const block of allBlocks) {
+          if (block.rendered) {
+            try {
+              block.render(false);
+            } catch (e) {}
+          }
+        }
+
+        // 全局布局更新
+        if ((window as any).__FORCE_LAYOUT_UPDATE__) {
+          (window as any).__FORCE_LAYOUT_UPDATE__();
+        }
+        tw.recordCachedAreas?.();
+        tw.resize?.();
+
+        const injectionDiv = workspace.getInjectionDiv();
+        if (injectionDiv) {
+          injectionDiv.classList.remove('gandi-fastload-animation');
+          injectionDiv.classList.remove('gandi-fastload-contain');
+        }
+      }, 80);
+    };
+
+      try {
+        if (activeId === ALL_GROUPS_ID) {
+          const result = origClear.call(this, xml, ...args);
+          scheduleLayoutReset();
+          return result;
+        } else {
+          // 使用劫持后的 workspace.clear() 以应用快速清理优化
+          if (tw.clear) {
+            tw.clear();
+          } else {
+            if (origClearWs) origClearWs.call(blockly.Xml, tw);
+            else tw.getAllBlocks?.().forEach((b: any) => b.dispose?.());
+          }
+
+          const topBlocks = extractTopLevelBlocks(xmlString);
+          topBlocks.forEach(node => {
+            const bid = node.getAttribute('id');
+            if (!bid) return;
+            if (getBlockGroup({ id: bid }) === activeId) {
+              try {
+                const b = origDom.call(blockly.Xml, node.cloneNode(true), tw);
+                if (b) {
+                  b.moveBy(parseFloat(node.getAttribute('x') || '0'), parseFloat(node.getAttribute('y') || '0'));
+                }
+              } catch { }
+            }
+          });
+          tw.scrollCenter?.();
+          scheduleLayoutReset();
+          return tw;
+        }
+      } catch (e) {
+        if (shouldOptimize) {
+          window.__SKIP_LAYOUT_UPDATE__ = false;
+          const injectionDiv = workspace.getInjectionDiv();
+          if (injectionDiv) {
+            injectionDiv.classList.remove('gandi-fastload-animation');
+            injectionDiv.classList.remove('gandi-fastload-contain');
+          }
+        }
+        throw e;
+      } finally {
+        setTimeout(() => refreshGroups(), 20);
+      }
     };
 
     const handleCreate = (e: any) => {
       if (e.type !== blockly.Events.BLOCK_CREATE) return;
-      const block = workspace.getBlockById(e.blockId) as any; // 断言为 any 避免 TS 报错
+      const block = workspace.getBlockById(e.blockId) as any;
       if (!block || block.getParent?.()) return;
       const ct = (vm as any).editingTarget || (vm as any).runtime?._editingTarget;
       if (!ct) return;
@@ -175,49 +327,47 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
     };
     workspace.addChangeListener(handleCreate);
 
-      // 右键菜单
-      const ContextMenu = (window as any).Blockly.ContextMenu;
-      let menuId: string | null = null;
-      if (ContextMenu && typeof ContextMenu.addDynamicMenuItem === 'function') {
-        menuId = ContextMenu.addDynamicMenuItem(
-          (items: any[], block: any) => {
-            if (!block || block.workspace.isFlyout) return items;
-            const ct = (vm as any).editingTarget || (vm as any).runtime?._editingTarget;
-            if (!ct) return items;
-            const targetId = ct.id;
-            const allGroups = getGroups(targetId);
-            if (!allGroups.length) return items;
-            
-            const root = getRootBlock(block);
-            const cur = getBlockGroup(root);
-            
-            // 添加分隔线
-            items.push({ separator: true });
-            
-            // 平铺所有分组
-            allGroups.forEach(g => {
-              items.push({
-                text: `移动到「${g.name}」${g.id === cur ? ' ✓' : ''}`,
-                enabled: g.id !== cur,
-                callback: () => {
-                  try {
-                    setBlockGroup(root, g.id, targetId);
-                    if (getActiveGroupId(targetId) !== ALL_GROUPS_ID && getActiveGroupId(targetId) !== g.id) {
-                      (vm as any).emitWorkspaceUpdate?.();
-                    }
-                    toast.success(`已移至「${g.name}」`);
-                  } catch (e) {
-                    console.error('移动分组失败', e);
+    const ContextMenu = (window as any).Blockly.ContextMenu;
+    let menuId: string | null = null;
+    if (ContextMenu && typeof ContextMenu.addDynamicMenuItem === 'function') {
+      menuId = ContextMenu.addDynamicMenuItem(
+        (items: any[], block: any) => {
+          if (!block || block.workspace.isFlyout) return items;
+          const ct = (vm as any).editingTarget || (vm as any).runtime?._editingTarget;
+          if (!ct) return items;
+          const targetId = ct.id;
+          const allGroups = getGroups(targetId);
+          if (!allGroups.length) return items;
+          
+          const root = getRootBlock(block);
+          const cur = getBlockGroup(root);
+          
+          items.push({ separator: true });
+          
+          allGroups.forEach(g => {
+            items.push({
+              text: `移动到「${g.name}」${g.id === cur ? ' ✓' : ''}`,
+              enabled: g.id !== cur,
+              callback: () => {
+                try {
+                  setBlockGroup(root, g.id, targetId);
+                  if (getActiveGroupId(targetId) !== ALL_GROUPS_ID && getActiveGroupId(targetId) !== g.id) {
+                    (vm as any).emitWorkspaceUpdate?.();
                   }
+                  toast.success(`已移至「${g.name}」`);
+                } catch (e) {
+                  console.error('移动分组失败', e);
                 }
-              });
+              }
             });
-            
-            return items;
-          },
-          { targetNames: ['blocks', 'frame'] }
-        );
-      }
+          });
+          
+          return items;
+        },
+        { targetNames: ['blocks', 'frame'] }
+      );
+    }
+
     return () => {
       if (origClear) blockly.Xml.clearWorkspaceAndLoadFromXml = origClear;
       workspace.removeChangeListener(handleCreate);
@@ -227,22 +377,508 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
     };
   }, [blockly, workspace, vm, refreshGroups]);
 
-// ========== 注释处理：全局隐藏 + 精准恢复普通注释 ==========
-// ========== 注释处理：全局隐藏容器 + 精准显示普通注释容器 ==========
-React.useEffect(() => {
-  // 1. 注入 CSS：默认隐藏所有注释容器（整个气泡）
-  const style = document.createElement('style');
-  style.textContent = `
-    /* 隐藏所有注释的根容器 */
-    g:has(.scratchCommentTopBar) {
-      display: none !important;
+  //切出优化-快速清理
+  React.useEffect(() => {
+    if (!blockly || !workspace) return;
+
+    const BlocklyAny = blockly as any;
+    const WorkspaceSvg = BlocklyAny.WorkspaceSvg?.prototype ? BlocklyAny.WorkspaceSvg : workspace.constructor;
+    const BlockSvg = BlocklyAny.BlockSvg?.prototype ? BlocklyAny.BlockSvg : (workspace.newBlock('') as any).constructor;
+
+    if (!window.__ORIGINAL_CLEAR_WS_SVG__) {
+      window.__ORIGINAL_CLEAR_WS_SVG__ = WorkspaceSvg.prototype.clear;
     }
-  `;
+    if (!window.__ORIGINAL_DISPOSE_SVG__) {
+      window.__ORIGINAL_DISPOSE_SVG__ = BlockSvg.prototype.dispose;
+    }
+
+    const origClear = window.__ORIGINAL_CLEAR_WS_SVG__;
+    const origDispose = window.__ORIGINAL_DISPOSE_SVG__;
+
+    //劫持 removeClass，在节点为 null 时静默忽略
+    const utils = BlocklyAny.utils;
+    let origRemoveClass: any = null;
+    if (utils && utils.removeClass) {
+      origRemoveClass = utils.removeClass;
+      utils.removeClass = function(element: any, className: string) {
+        if (!element) return;
+        return origRemoveClass.call(this, element, className);
+      };
+    }
+
+    BlockSvg.prototype.dispose = function(healStack?: boolean, animate?: boolean) {
+      if (window.__FAST_CLEAR_MODE__) {
+        const svgGroup = this.svgGroup_;
+        this.svgGroup_ = null;
+        try {
+          return origDispose.call(this, healStack, animate);
+        } finally {
+          this.svgGroup_ = svgGroup;
+        }
+      } else {
+        return origDispose.call(this, healStack, animate);
+      }
+    };
+
+    // 劫持 Connection.dispose（快速清理时跳过数据库操作）
+    const Connection = BlocklyAny.Connection?.prototype ? BlocklyAny.Connection : (workspace.newBlock('')?.getConnections_(true)?.[0]?.constructor);
+    let origConnectionDispose: any = null;
+    if (Connection && Connection.prototype.dispose) {
+      origConnectionDispose = Connection.prototype.dispose;
+      Connection.prototype.dispose = function() {
+        if (window.__FAST_CLEAR_MODE__) {
+          if (this.sourceBlock_) {
+            const connections = this.sourceBlock_.getConnections_(true);
+            const idx = connections.indexOf(this);
+            if (idx !== -1) connections.splice(idx, 1);
+          }
+          this.sourceBlock_ = null;
+          this.targetConnection = null;
+          this.targetBlock_ = null;
+          this.connectionDB_ = null;
+        } else {
+          return origConnectionDispose.call(this);
+        }
+      };
+    }
+
+    // 劫持 Field.dispose
+    const Field = BlocklyAny.Field?.prototype ? BlocklyAny.Field : (() => {
+      const dummyBlock = workspace.newBlock('') as any;
+      const input = dummyBlock?.inputList?.[0];
+      const field = input?.fieldRow?.[0];
+      dummyBlock?.dispose(false, false);
+      return field?.constructor;
+    })();
+    let origFieldDispose: any = null;
+    if (Field && Field.prototype.dispose) {
+      origFieldDispose = Field.prototype.dispose;
+      Field.prototype.dispose = function() {
+        if (window.__FAST_CLEAR_MODE__) {
+          if (this.fieldGroup_) this.fieldGroup_ = null;
+          this.sourceBlock_ = null;
+          this.workspace_ = null;
+          this.validator_ = null;
+          this.callback_ = null;
+          this.textElement_ = null;
+          this.borderRect_ = null;
+        } else {
+          return origFieldDispose.call(this);
+        }
+      };
+    }
+
+    // 劫持 Input.dispose
+    const Input = BlocklyAny.Input?.prototype ? BlocklyAny.Input : (() => {
+      const dummyBlock = workspace.newBlock('') as any;
+      const input = dummyBlock?.inputList?.[0];
+      dummyBlock?.dispose(false, false);
+      return input?.constructor;
+    })();
+    let origInputDispose: any = null;
+    if (Input && Input.prototype.dispose) {
+      origInputDispose = Input.prototype.dispose;
+      Input.prototype.dispose = function() {
+        if (window.__FAST_CLEAR_MODE__) {
+          if (this.fieldGroup_) this.fieldGroup_ = null;
+          if (this.fieldRow) {
+            for (let i = 0; i < this.fieldRow.length; i++) {
+              const field = this.fieldRow[i];
+              if (field && field.dispose) field.dispose();
+            }
+            this.fieldRow.length = 0;
+          }
+          this.sourceBlock_ = null;
+          this.connection = null;
+        } else {
+          return origInputDispose.call(this);
+        }
+      };
+    }
+
+    WorkspaceSvg.prototype.clear = function() {
+      const enabled = window.__EDITOR_OPT_FAST_CLEAR_ENABLED__;
+      if (!enabled) {
+        return origClear.call(this);
+      }
+
+      const workspaceSvg = this as any;
+      const canvas = workspaceSvg.getCanvas();
+      if (!canvas) return origClear.call(this);
+
+      const topBlocks = workspaceSvg.getTopBlocks(true) as any[];
+
+      const startRemoveDOM = performance.now();
+      while (canvas.firstChild) {
+        canvas.removeChild(canvas.firstChild);
+      }
+      const removeDOMTime = performance.now() - startRemoveDOM;
+
+      // 快速清理模式：直接重置内部数据结构
+      const startReset = performance.now();
+      window.__FAST_CLEAR_MODE__ = true;
+      try {
+        if (BlocklyAny.Events) BlocklyAny.Events.disable();
+        try {
+          // 重置积木映射表
+          workspaceSvg.blockDB_ = Object.create(null);
+          // 重置顶层积木列表
+          workspaceSvg.topBlocks_ = [];
+          // 重置注释数据库（如果有）
+          if (workspaceSvg.commentDB_) {
+            workspaceSvg.commentDB_ = Object.create(null);
+          }
+          // 重置连接数据库列表
+          const dbList = workspaceSvg.connectionDBList;
+          if (dbList) {
+            for (let i = 0; i < dbList.length; i++) {
+              if (dbList[i]) {
+                dbList[i].connections_ = [];
+              }
+            }
+          }
+          // 注意：不重置 variableMap_
+        } finally {
+          if (BlocklyAny.Events) BlocklyAny.Events.enable();
+        }
+      } finally {
+        window.__FAST_CLEAR_MODE__ = false;
+      }
+      const resetTime = performance.now() - startReset;
+    };
+
+    return () => {
+      WorkspaceSvg.prototype.clear = window.__ORIGINAL_CLEAR_WS_SVG__;
+      BlockSvg.prototype.dispose = window.__ORIGINAL_DISPOSE_SVG__;
+      if (Connection && origConnectionDispose) Connection.prototype.dispose = origConnectionDispose;
+      if (Field && origFieldDispose) Field.prototype.dispose = origFieldDispose;
+      if (Input && origInputDispose) Input.prototype.dispose = origInputDispose;
+      if (utils && origRemoveClass) utils.removeClass = origRemoveClass;
+    };
+  }, [blockly, workspace]);
+
+  // 性能测量与序列化过滤
+  React.useEffect(() => {
+    if (!vm) return;
+    const originalSetEditingTarget = (vm as any).setEditingTarget;
+    const originalEmitWorkspaceUpdate = (vm as any).emitWorkspaceUpdate;
+/*
+    if (originalSetEditingTarget) {
+      (vm as any).setEditingTarget = function(targetId: string) {
+        const start = performance.now();
+        console.log(`[性能测量] 开始切换角色: ${targetId}`);
+        const result = originalSetEditingTarget.call(this, targetId);
+        const end = performance.now();
+        console.log(`[性能测量] 切换角色完成，总耗时: ${(end - start).toFixed(2)}ms`);
+        return result;
+      };
+    }
+*/
+    if (originalEmitWorkspaceUpdate) {
+      (vm as any).emitWorkspaceUpdate = function() {
+        window.__FILTER_TOP_BLOCKS_FOR_SERIALIZATION__ = true;
+        try {
+          return originalEmitWorkspaceUpdate.call(this);
+        } finally {
+          window.__FILTER_TOP_BLOCKS_FOR_SERIALIZATION__ = false;
+        }
+      };
+    }
+
+    return () => {
+      if (originalSetEditingTarget) {
+        (vm as any).setEditingTarget = originalSetEditingTarget;
+      }
+      if (originalEmitWorkspaceUpdate) {
+        (vm as any).emitWorkspaceUpdate = originalEmitWorkspaceUpdate;
+      }
+    };
+  }, [vm]);
+  //优化：字段初始化延迟 + rAF 同步
+React.useEffect(() => {
+  if (!blockly || !workspace) return;
+
+  const BlocklyAny = blockly as any;
+
+  const FieldLabel = BlocklyAny.FieldLabel?.prototype;
+  const origFieldLabelInit = FieldLabel?.init;
+
+  // 劫持 requestAnimationFrame，在快速模式下同步执行
+  const origRAF = window.requestAnimationFrame;
+  window.requestAnimationFrame = function(callback: FrameRequestCallback): number {
+    if (window.__SKIP_LAYOUT_UPDATE__) {
+      callback(performance.now());
+      return 0;
+    }
+    return origRAF.call(window, callback);
+  };
+
+  return () => {
+    window.requestAnimationFrame = origRAF;
+  };
+}, [blockly, workspace]);
+
+//拖拽镜头优化：开关控制 + 边界缓存 + 安全调用 ，不过没啥性能提升。
+React.useEffect(() => {
+  if (!blockly || !workspace) return;
+
+  // 检查全局开关是否启用（由设置面板控制）
+  const isDragOptimizeEnabled = (window as any).__ENABLE_DRAG_OPTIMIZE__ === true;
+  if (!isDragOptimizeEnabled) {
+    console.log('[拖拽优化] 开关未启用，跳过劫持');
+    return;
+  }
+
+  const BlocklyAny = blockly as any;
+  const WorkspaceDragger = BlocklyAny.WorkspaceDragger?.prototype;
+  const ScrollbarPair = BlocklyAny.ScrollbarPair?.prototype;
+  const Scrollbar = BlocklyAny.Scrollbar?.prototype;
+  const WorkspaceSvg = BlocklyAny.WorkspaceSvg?.prototype;
+
+  if (!WorkspaceDragger || !ScrollbarPair || !WorkspaceSvg) {
+    console.warn('[拖拽优化] 缺少必要原型，跳过');
+    return;
+  }
+
+  // 保存所有原始方法
+  const origStartDrag = WorkspaceDragger.startDrag;
+  const origDrag = WorkspaceDragger.drag;
+  const origEndDrag = WorkspaceDragger.endDrag;
+  const origScrollbarPairSet = ScrollbarPair.set;
+  const origSetHandlePosition = Scrollbar?.setHandlePosition;
+  const origSetTopLevelMetrics = WorkspaceSvg.setTopLevelWorkspaceMetrics_;
+  const origGetMetrics = WorkspaceSvg.getMetrics;
+  const origGetBlocksBoundingBox = WorkspaceSvg.getBlocksBoundingBox;
+  const origGetContentDimensions_ = WorkspaceSvg.getContentDimensions_;
+  const origGetContentDimensionsExact_ = WorkspaceSvg.getContentDimensionsExact_;
+
+  // 初始化全局快速模式标志
+  if (typeof window.__FAST_DRAG_MODE__ === 'undefined') {
+    window.__FAST_DRAG_MODE__ = false;
+  }
+
+  let cachedMetrics: any = null;
+  let cachedBoundingBox: any = null;
+
+  // startDrag 劫持
+  WorkspaceDragger.startDrag = function() {
+    const ws = this.workspace_;
+    if (ws) {
+      if (origGetMetrics) {
+        cachedMetrics = origGetMetrics.call(ws);
+      }
+      if (origGetBlocksBoundingBox) {
+        cachedBoundingBox = origGetBlocksBoundingBox.call(ws);
+      }
+    }
+    window.__FAST_DRAG_MODE__ = true;
+    workspace.getInjectionDiv()?.classList.add('gandi-fast-drag');
+    if (origStartDrag) {
+      return origStartDrag.call(this);
+    }
+  };
+
+  //  drag 劫持
+  WorkspaceDragger.drag = function(currentDragDeltaXY: any) {
+    if (!window.__FAST_DRAG_MODE__) {
+      if (origDrag) return origDrag.call(this, currentDragDeltaXY);
+      return;
+    }
+
+    const ws = this.workspace_;
+    const metrics = this.startDragMetrics_;
+    const startScroll = this.startScrollXY_;
+
+    // 模仿原方法写法。
+    const newXY = {
+      x: startScroll.x + currentDragDeltaXY.x + 325, //这个数字并不源于任何计算，只是单纯我试出来的能够让积木偏移回去的常数。
+      y: startScroll.y + currentDragDeltaXY.y
+    };
+
+    let x = Math.max(-newXY.x, metrics.contentLeft);
+    let y = Math.max(-newXY.y, metrics.contentTop);
+    x = Math.min(x, -metrics.viewWidth + metrics.contentLeft + metrics.contentWidth);
+    y = Math.min(y, -metrics.viewHeight + metrics.contentTop + metrics.contentHeight);
+
+    const translateX = -x - 0 * metrics.contentLeft;
+    const translateY = -y - 0 * metrics.contentTop;
+
+    ws.translate(translateX, translateY);
+    if (ws.grid_) {
+      ws.grid_.moveTo(translateX, translateY);
+    }
+  };
+
+  //  endDrag 
+  WorkspaceDragger.endDrag = function(currentDragDeltaXY: any) {
+    window.__FAST_DRAG_MODE__ = false;
+    workspace.getInjectionDiv()?.classList.remove('gandi-fast-drag');
+    cachedMetrics = null;
+    cachedBoundingBox = null;
+
+    // 临时恢复滚动条原始方法
+    if (origScrollbarPairSet) ScrollbarPair.set = origScrollbarPairSet;
+    if (Scrollbar && origSetHandlePosition) Scrollbar.setHandlePosition = origSetHandlePosition;
+
+    let result;
+    if (origEndDrag) {
+      result = origEndDrag.call(this, currentDragDeltaXY);
+    }
+
+    // 重新劫持
+    ScrollbarPair.set = function(x: number, y: number) {
+      if (window.__FAST_DRAG_MODE__) return;
+      if (origScrollbarPairSet) return origScrollbarPairSet.call(this, x, y);
+    };
+    if (Scrollbar && origSetHandlePosition) {
+      Scrollbar.setHandlePosition = function(newPosition: number) {
+        if (window.__FAST_DRAG_MODE__) {
+          this.handlePosition_ = newPosition;
+          return;
+        }
+        return origSetHandlePosition.call(this, newPosition);
+      };
+    }
+
+
+    return result;
+  };
+
+  //  劫持滚动条与布局 
+  ScrollbarPair.set = function(x: number, y: number) {
+    if (window.__FAST_DRAG_MODE__) return;
+    if (origScrollbarPairSet) return origScrollbarPairSet.call(this, x, y);
+  };
+
+  if (Scrollbar && origSetHandlePosition) {
+    Scrollbar.setHandlePosition = function(newPosition: number) {
+      if (window.__FAST_DRAG_MODE__) {
+        this.handlePosition_ = newPosition;
+        return;
+      }
+      return origSetHandlePosition.call(this, newPosition);
+    };
+  }
+
+  WorkspaceSvg.setTopLevelWorkspaceMetrics_ = function(xyRatio: any) {
+    if (window.__FAST_DRAG_MODE__) return;
+    if (origSetTopLevelMetrics) return origSetTopLevelMetrics.call(this, xyRatio);
+  };
+
+  //  边界缓存 
+  WorkspaceSvg.getMetrics = function() {
+    if (window.__FAST_DRAG_MODE__ && cachedMetrics) return cachedMetrics;
+    if (origGetMetrics) return origGetMetrics.call(this);
+  };
+
+  WorkspaceSvg.getBlocksBoundingBox = function() {
+    if (window.__FAST_DRAG_MODE__ && cachedBoundingBox) return cachedBoundingBox;
+    if (origGetBlocksBoundingBox) return origGetBlocksBoundingBox.call(this);
+  };
+
+  WorkspaceSvg.getContentDimensions_ = function() {
+    if (window.__FAST_DRAG_MODE__ && cachedMetrics) {
+      return {
+        width: cachedMetrics.contentWidth,
+        height: cachedMetrics.contentHeight,
+        left: cachedMetrics.contentLeft,
+        top: cachedMetrics.contentTop
+      };
+    }
+    if (origGetContentDimensions_) return origGetContentDimensions_.call(this);
+  };
+
+  WorkspaceSvg.getContentDimensionsExact_ = function() {
+    if (window.__FAST_DRAG_MODE__ && cachedMetrics) {
+      return {
+        left: cachedMetrics.contentLeft,
+        right: cachedMetrics.contentLeft + cachedMetrics.contentWidth,
+        top: cachedMetrics.contentTop,
+        bottom: cachedMetrics.contentTop + cachedMetrics.contentHeight
+      };
+    }
+    if (origGetContentDimensionsExact_) return origGetContentDimensionsExact_.call(this);
+  };
+
+  console.log('[拖拽优化] 劫持已安装（开关已启用）');
+
+  //  清理 
+  return () => {
+    WorkspaceDragger.startDrag = origStartDrag;
+    WorkspaceDragger.drag = origDrag;
+    WorkspaceDragger.endDrag = origEndDrag;
+    ScrollbarPair.set = origScrollbarPairSet;
+    if (Scrollbar && origSetHandlePosition) Scrollbar.setHandlePosition = origSetHandlePosition;
+    WorkspaceSvg.setTopLevelWorkspaceMetrics_ = origSetTopLevelMetrics;
+    WorkspaceSvg.getMetrics = origGetMetrics;
+    WorkspaceSvg.getBlocksBoundingBox = origGetBlocksBoundingBox;
+    WorkspaceSvg.getContentDimensions_ = origGetContentDimensions_;
+    WorkspaceSvg.getContentDimensionsExact_ = origGetContentDimensionsExact_;
+
+    workspace.getInjectionDiv()?.classList.remove('gandi-fast-drag');
+    window.__FAST_DRAG_MODE__ = false;
+    console.log('[拖拽优化] 劫持已恢复');
+  };
+}, [blockly, workspace]);
+  //  切入优化- 延迟布局计算 
+  React.useEffect(() => {
+    if (!blockly || !workspace) return;
+
+    const BlocklyAny = blockly as any;
+    const WorkspaceSvg = BlocklyAny.WorkspaceSvg?.prototype ? BlocklyAny.WorkspaceSvg : workspace.constructor;
+
+    const origUpdateScreenCalculations = WorkspaceSvg.prototype.updateScreenCalculations_;
+    if (!origUpdateScreenCalculations) return;
+
+    WorkspaceSvg.prototype.updateScreenCalculations_ = function() {
+      if (window.__SKIP_LAYOUT_UPDATE__) {
+        if (this.updateInverseScreenCTM) this.updateInverseScreenCTM();
+        return;
+      }
+      return origUpdateScreenCalculations.call(this);
+    };
+
+    // 劫持 getTopBlocks 用于序列化过滤
+    const WorkspaceProto = BlocklyAny.Workspace?.prototype || workspace.constructor.prototype;
+    const origGetTopBlocks = WorkspaceProto.getTopBlocks;
+    if (origGetTopBlocks) {
+      WorkspaceProto.getTopBlocks = function(ordered?: boolean) {
+        if (window.__FILTER_TOP_BLOCKS_FOR_SERIALIZATION__) {
+          const ct = (vm as any).editingTarget || (vm as any).runtime?._editingTarget;
+          if (ct) {
+            const activeId = getActiveGroupId(ct.id);
+            if (activeId !== ALL_GROUPS_ID) {
+              const allTopBlocks = origGetTopBlocks.call(this, ordered) as any[];
+              return allTopBlocks.filter((block: any) => getBlockGroup(block) === activeId);
+            }
+          }
+        }
+        return origGetTopBlocks.call(this, ordered);
+      };
+    }
+
+    const forceLayoutUpdate = () => {
+      const ws = workspace as any;
+      if (ws.updateInverseScreenCTM) ws.updateInverseScreenCTM();
+      if (origUpdateScreenCalculations) origUpdateScreenCalculations.call(ws);
+    };
+    (window as any).__FORCE_LAYOUT_UPDATE__ = forceLayoutUpdate;
+
+    return () => {
+      WorkspaceSvg.prototype.updateScreenCalculations_ = origUpdateScreenCalculations;
+      if (origGetTopBlocks) WorkspaceProto.getTopBlocks = origGetTopBlocks;
+      delete (window as any).__FORCE_LAYOUT_UPDATE__;
+    };
+  }, [blockly, workspace]);
+
+  //  注释处理：修复重复显示问题 
+React.useEffect(() => {
+  const style = document.createElement('style');
+  style.textContent = `g.scratchCommentTopBar { display: none !important; }`;
   document.head.appendChild(style);
 
-  const shownContainers = new Set<Element>();
+  let shownContainers = new WeakSet<Element>(); // 每次切换角色时重新创建
 
-  // 2. 判断是否为分组注释
   const isGroupComment = (container: Element): boolean => {
     const blockSvg = container.closest('g.blocklyDraggable');
     const blockId = blockSvg?.getAttribute('data-id') || blockSvg?.id;
@@ -254,29 +890,60 @@ React.useEffect(() => {
     return textarea ? textarea.value.includes('__|EdiOpt|') : false;
   };
 
-  // 3. 显示普通注释容器（移除内联隐藏样式）
   const showNormalComments = () => {
-    const containers = document.querySelectorAll('g:has(.scratchCommentTopBar)');
+  // 尝试通过 Blockly 工作区 API 获取所有注释（Scratch 专用）
+  let comments: any[] = [];
+  if (typeof (workspace as any).getTopComments === 'function') {
+    comments = (workspace as any).getTopComments(true);
+  } else if ((workspace as any).commentDB_) {
+    comments = Object.values((workspace as any).commentDB_);
+  } else {
+    // 降级：安全地通过画布查询，但严格限定在画布内
+    const canvas = workspace.getCanvas();
+    if (!canvas) return;
+    const containers = canvas.querySelectorAll('g:has(.scratchCommentTopBar)');
     containers.forEach((container: Element) => {
+      if (container.closest('.blocklyContextMenu')) return;
       if (shownContainers.has(container)) return;
-
       if (isGroupComment(container)) {
         shownContainers.add(container);
         return;
       }
-
-      // 普通注释：强制显示容器
       (container as HTMLElement).style.setProperty('display', 'block', 'important');
-      // 可选：添加淡入动画
       container.classList.add('gandi-normal-comment');
       shownContainers.add(container);
     });
-  };
+    return;
+  }
 
+  // 通过工作区实例处理每个注释
+  comments.forEach((comment: any) => {
+    // 注释的根 SVG 元素通常是 comment.svgGroup_ 或 comment.getSvgRoot()
+    const root = comment.svgGroup_ || comment.getSvgRoot?.();
+    if (!root) return;
+
+    // 跳过右键菜单内的元素
+    if (root.closest?.('.blocklyContextMenu')) return;
+    if (shownContainers.has(root)) return;
+
+    if (isGroupComment(root)) {
+      shownContainers.add(root);
+      return;
+    }
+
+    root.style.setProperty('display', 'block', 'important');
+    root.classList.add('gandi-normal-comment');
+    shownContainers.add(root);
+  });
+};
+
+  // 监听目标切换和积木变化，重新显示注释
   const observer = new MutationObserver(() => {
     setTimeout(showNormalComments, 20);
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // 初始化显示
   setTimeout(showNormalComments, 200);
   const interval = setInterval(showNormalComments, 500);
 
@@ -284,20 +951,14 @@ React.useEffect(() => {
     document.head.removeChild(style);
     observer.disconnect();
     clearInterval(interval);
-    shownContainers.clear();
+    // 清理添加的类
+    const canvas = workspace.getCanvas();
+    if (canvas) {
+      const comments = canvas.querySelectorAll('.gandi-normal-comment');
+      comments.forEach((el) => el.classList.remove('gandi-normal-comment'));
+    }
   };
-}, []);
-  // 注册设置项
-  React.useEffect(() => {
-    if (!registerSettings) return;
-    const d = registerSettings(
-      '积木分组',
-      'plugin-editor-optimization',
-      [{ key: 'group', label: '分组', description: '管理积木分组', items: [] }],
-      <GroupIcon />
-    );
-    return () => d.dispose();
-  }, [registerSettings]);
+}, [workspace]); // 依赖 workspace，确保切换角色时重新执行整个 useEffect
 
   const portal = document.querySelector('.plugins-wrapper');
   if (!portal) return null;

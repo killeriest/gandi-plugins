@@ -90,3 +90,45 @@
     background-color: rgba(0, 0, 0, 0.04);
   }
 }
+.gandi-fastload-contain {
+  contain: strict;
+  will-change: transform;
+  pointer-events: none; // 新增：分帧加载期间禁止交互
+}
+  // 临时禁用阴影，降低绘制开销
+.blocklyDraggable {
+    filter: none !important;
+  }
+.blocklyBlockBackground {
+    filter: none !important;
+  }
+
+.blocklyPath {
+    fill: #c0c0c0 !important;  // 统一纯色背景
+   }
+.blocklyBlockBackground {
+    fill: #c0c0c0 !important;  // 统一纯色背景
+   }
+   
+
+.blocklySvg {
+  contain: layout style paint;
+}
+.gandi-fast-drag {
+  // 拖拽时强制画布使用独立合成层
+  .blocklyBlockCanvas {
+    will-change: transform;
+  }
+  // 隐藏滚动条手柄以减少重绘
+  .blocklyScrollbarHandle {
+    opacity: 0 !important;
+  }
+}
+.gandi-fast-zoom {
+  .blocklyScrollbar {
+    opacity: 0 !important; // 缩放时隐藏滚动条，减少重绘
+  }
+  .blocklyBlockCanvas {
+    will-change: transform; // 提示浏览器优化
+  }
+}
