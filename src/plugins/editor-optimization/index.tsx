@@ -145,7 +145,6 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
               value: false,
               onChange: (v: boolean) => {
                 window.__EDITOR_OPT_FAST_CLEAR_ENABLED__ = v;
-                console.log(`[快速清理] 开关: ${v}`);
               }
             },
             {
@@ -156,7 +155,6 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
               value: false,
               onChange: (v: boolean) => {
                 window.__ENABLE_FAST_LOAD__ = v;
-                console.log(`[切入优化] 开关: ${v}`);
               }
             },
             {
@@ -167,7 +165,6 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
               value: false,
               onChange: (v: boolean) => {
                 window.__ENABLE_DRAG_OPTIMIZE__ = v;
-                console.log(`[拖拽优化] 开关: ${v}`);
               }
             },
                         {
@@ -178,7 +175,6 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
               value: false,
               onChange: (v: boolean) => {
                 window.__ENABLE_FULLSCREEN_OPTIMIZATION__ = v;
-                console.log(`[全屏优化] 开关: ${v}`);
               }
             }
           ]
@@ -383,7 +379,6 @@ if (canvas) {
                   }
                   toast.success(`已移至「${g.name}」`);
                 } catch (e) {
-                  console.error('移动分组失败', e);
                 }
               }
             });
@@ -652,7 +647,6 @@ React.useEffect(() => {
   // 检查全局开关是否启用（由设置面板控制）
   const isDragOptimizeEnabled = (window as any).__ENABLE_DRAG_OPTIMIZE__ === true;
   if (!isDragOptimizeEnabled) {
-    console.log('[拖拽优化] 开关未启用，跳过劫持');
     return;
   }
 
@@ -663,7 +657,6 @@ React.useEffect(() => {
   const WorkspaceSvg = BlocklyAny.WorkspaceSvg?.prototype;
 
   if (!WorkspaceDragger || !ScrollbarPair || !WorkspaceSvg) {
-    console.warn('[拖拽优化] 缺少必要原型，跳过');
     return;
   }
 
@@ -827,7 +820,6 @@ React.useEffect(() => {
     if (origGetContentDimensionsExact_) return origGetContentDimensionsExact_.call(this);
   };
 
-  console.log('[拖拽优化] 已安装');
 
   //  清理 
   return () => {
@@ -844,7 +836,6 @@ React.useEffect(() => {
 
     workspace.getInjectionDiv()?.classList.remove('gandi-fast-drag');
     window.__FAST_DRAG_MODE__ = false;
-    console.log('[拖拽优化] 劫持已恢复');
   };
 }, [blockly, workspace]);
   //  切入优化- 延迟布局计算 
@@ -994,13 +985,11 @@ React.useEffect(() => {
 
   const renderer = runtime.renderer;
   if (!renderer) {
-    console.warn('[全屏优化] 未找到 renderer，跳过');
     return;
   }
 
   const RenderWebGLProto = Object.getPrototypeOf(renderer);
   if (!RenderWebGLProto || !RenderWebGLProto.resize) {
-    console.warn('[全屏优化] 无法获取 RenderWebGLProto.resize，跳过');
     return;
   }
 
@@ -1046,14 +1035,12 @@ React.useEffect(() => {
     return origResize.call(this, pixelsWide, pixelsTall);
   };
 
-  console.log('[全屏优化] 已安装（视觉隐藏模式）');
 
   return () => {
     RenderWebGLProto.resize = origResize;
     window.__IN_FULLSCREEN_MODE__ = false;
     if (injectionDiv) (injectionDiv as any).style.display = '';
     if ((Blockly as any).Events) (Blockly as any).Events.enable();
-    console.log('[全屏优化] 已卸载');
   };
 }, [vm, workspace]);
 //分组UI
