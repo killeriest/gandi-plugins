@@ -1,0 +1,101 @@
+.todo-plugin {
+  position: relative;
+}
+
+.todo-plugin__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.todo-plugin__panel-body {
+  padding: 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+}
+
+.todo-plugin__tabs {
+  margin-bottom: 12px;
+}
+
+.todo-plugin__list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.todo-plugin__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--theme-text-primary);
+  opacity: 0.5;
+  font-size: 14px;
+  text-align: center;
+  padding: 20px;
+}
+
+.todo-plugin__add-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 40px;
+  font-size: 14px;
+  color: var(--theme-text-primary);
+  background-color: transparent;
+  border: 1px dashed var(--theme-color-g300);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: 8px;
+  flex-shrink: 0;
+
+  &:hover {
+    background-color: var(--gui-item-hover);
+    border-color: var(--gui-item-active);
+  }
+}
+
+.todo-plugin__refresh-button {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--gui-item-active);
+  color: white;
+  font-size: 18px;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    transform 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+
+  &:hover {
+    opacity: 0.85;
+  }
+
+  &:active {
+    transform: rotate(180deg);
+  }
+}

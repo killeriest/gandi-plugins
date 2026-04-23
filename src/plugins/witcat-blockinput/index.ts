@@ -229,7 +229,7 @@ const WitcatBlockinput = ({ registerSettings, msg, vm, workspace, blockly }: Plu
         modal.style.height = "80%";
         (document.getElementsByClassName("modals")[0] as HTMLDivElement).style.backgroundColor =
           "var(--theme-color-300)";
-        span.style.color = "var(--theme-color-g300)";
+        span.style.color = "var(--theme-box-shadow-color)";
         (document.getElementsByClassName("modal-title")[0] as HTMLElement).style.color = "var(--theme-text-primary)";
       }, 300);
     });
