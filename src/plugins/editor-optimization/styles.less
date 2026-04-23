@@ -132,3 +132,14 @@
     will-change: transform; // 提示浏览器优化
   }
 }
+.gandi-fullscreen-paused {
+  // 强制隐藏画布，或者使其完全不参与渲染
+  .blocklyBlockCanvas,
+  .blocklyBubbleCanvas {
+    visibility: hidden !important;
+    // 或者 display: none，但可能导致退出全屏时重新布局耗时
+  }
+  // 也可以仅设置 opacity: 0，保留占位但减少绘制开销
+  opacity: 0;
+  pointer-events: none;
+}

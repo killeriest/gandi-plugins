@@ -30,6 +30,8 @@ declare global {
     __FILTER_TOP_BLOCKS_FOR_SERIALIZATION__?: boolean;
     __ENABLE_DRAG_OPTIMIZE__?: boolean;
     __FAST_DRAG_MODE__?: boolean;
+    __IN_FULLSCREEN_MODE__?: boolean;
+    __ENABLE_FULLSCREEN_OPTIMIZATION__?: boolean;
   }
 }
 
@@ -166,6 +168,17 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
               onChange: (v: boolean) => {
                 window.__ENABLE_DRAG_OPTIMIZE__ = v;
                 console.log(`[拖拽优化] 开关: ${v}`);
+              }
+            },
+                        {
+              key: 'enableFullscreenOptimize',
+              type: 'switch',
+              label: '[实验]启用全屏优化',
+              description: '在舞台全屏时隐藏积木区，减少不必要的积木区渲染开销',
+              value: false,
+              onChange: (v: boolean) => {
+                window.__ENABLE_FULLSCREEN_OPTIMIZATION__ = v;
+                console.log(`[全屏优化] 开关: ${v}`);
               }
             }
           ]
@@ -352,7 +365,21 @@ if (canvas) {
                 try {
                   setBlockGroup(root, g.id, targetId);
                   if (getActiveGroupId(targetId) !== ALL_GROUPS_ID && getActiveGroupId(targetId) !== g.id) {
-                    (vm as any).emitWorkspaceUpdate?.();
+                    // 隐藏该积木及其所有子积木
+                    const hideBlockStack = (block: any) => {
+                      if (!block) return;
+                      // 隐藏自身
+                      if (block.getSvgRoot) {
+                        const rootSvg = block.getSvgRoot();
+                        if (rootSvg) rootSvg.style.display = 'none';
+                      }
+                      // 隐藏连接线（可选，Blockly 会自动隐藏？通常跟随积木隐藏即可）
+                      // 递归隐藏子积木
+                      const children = block.getChildren(false);
+                      children.forEach((child: any) => hideBlockStack(child));
+                    };
+                    
+                    hideBlockStack(root);
                   }
                   toast.success(`已移至「${g.name}」`);
                 } catch (e) {
@@ -800,7 +827,7 @@ React.useEffect(() => {
     if (origGetContentDimensionsExact_) return origGetContentDimensionsExact_.call(this);
   };
 
-  console.log('[拖拽优化] 劫持已安装（开关已启用）');
+  console.log('[拖拽优化] 已安装');
 
   //  清理 
   return () => {
@@ -959,7 +986,77 @@ React.useEffect(() => {
     }
   };
 }, [workspace]); // 依赖 workspace，确保切换角色时重新执行整个 useEffect
+//全屏优化
+React.useEffect(() => {
+  if (!vm || !workspace) return;
+  const runtime = (vm as any).runtime;
+  if (!runtime) return;
 
+  const renderer = runtime.renderer;
+  if (!renderer) {
+    console.warn('[全屏优化] 未找到 renderer，跳过');
+    return;
+  }
+
+  const RenderWebGLProto = Object.getPrototypeOf(renderer);
+  if (!RenderWebGLProto || !RenderWebGLProto.resize) {
+    console.warn('[全屏优化] 无法获取 RenderWebGLProto.resize，跳过');
+    return;
+  }
+
+  const origResize = RenderWebGLProto.resize;
+  const injectionDiv = workspace.getInjectionDiv();
+
+  RenderWebGLProto.resize = function(pixelsWide: number, pixelsTall: number) {
+    const { canvas } = this._gl;
+    if (window.__ENABLE_FULLSCREEN_OPTIMIZATION__){
+    const isEnteringFullscreen = pixelsTall > canvas.height;
+    const isExitingFullscreen = pixelsTall <= canvas.height;
+    
+    if (isEnteringFullscreen && !window.__IN_FULLSCREEN_MODE__) {
+      window.__IN_FULLSCREEN_MODE__ = true;
+
+      // 视觉隐藏：直接将整个积木区容器设为不可见
+      if (injectionDiv) { 
+        (injectionDiv as any).style.display = 'none';
+      }
+
+      // 禁用事件和某些观察器（可选）
+      if ((Blockly as any).Events) {
+        (Blockly as any).Events.disable();  // 阻止积木区事件触发
+      }
+    } else if (isExitingFullscreen && window.__IN_FULLSCREEN_MODE__) {
+      window.__IN_FULLSCREEN_MODE__ = false;
+
+      // 恢复显示
+      if (injectionDiv) {
+        (injectionDiv as any).style.display = '';
+      }
+
+      if ((Blockly as any).Events) {
+        (Blockly as any).Events.enable();
+      }
+
+      // 强制刷新工作区布局（因为隐藏期间可能错过了尺寸变化）
+      workspace.recordCachedAreas?.();
+      workspace.resize?.();
+    }
+  }
+
+    return origResize.call(this, pixelsWide, pixelsTall);
+  };
+
+  console.log('[全屏优化] 已安装（视觉隐藏模式）');
+
+  return () => {
+    RenderWebGLProto.resize = origResize;
+    window.__IN_FULLSCREEN_MODE__ = false;
+    if (injectionDiv) (injectionDiv as any).style.display = '';
+    if ((Blockly as any).Events) (Blockly as any).Events.enable();
+    console.log('[全屏优化] 已卸载');
+  };
+}, [vm, workspace]);
+//分组UI
   const portal = document.querySelector('.plugins-wrapper');
   if (!portal) return null;
 
