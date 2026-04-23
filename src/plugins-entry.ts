@@ -23,10 +23,14 @@ export default {
   "voice-cooperation": () => import(/* webpackChunkName: "plugin-voice-cooperation" */ "src/plugins/voice-cooperation"),
   "block-sharing": () => import(/* webpackChunkName: "plugin-block-sharing" */ "plugins/block-sharing"),
   "costume-piskel": () => import(/* webpackChunkName: "plugin-costume-piskel" */ "src/plugins/costume-piskel"),
-  "data-category-tweaks": () => import(/* webpackChunkName: "plugin-data-category-tweaks" */ "plugins/data-category-tweaks"),
-  "mobile-code-batch-select": () => import(/* webpackChunkName: "plugin-mobile-code-batch-select" */ "src/plugins/mobile-code-batch-select"),
+  "data-category-tweaks": () =>
+    import(/* webpackChunkName: "plugin-data-category-tweaks" */ "plugins/data-category-tweaks"),
+  "mobile-code-batch-select": () =>
+    import(/* webpackChunkName: "plugin-mobile-code-batch-select" */ "src/plugins/mobile-code-batch-select"),
   "clean-pro": () => import(/* webpackChunkName: "plugin-clean-pro" */ "src/plugins/clean-pro"),
-  "witcat-infinite-canvas": () => import(/* webpackChunkName: "plugin-witcat-infinite-canvas" */ "src/plugins/witcat-infinite-canvas"),
+  "witcat-infinite-canvas": () =>
+    import(/* webpackChunkName: "plugin-witcat-infinite-canvas" */ "src/plugins/witcat-infinite-canvas"),
   "find-definition": () => import(/* webpackChunkName: "plugin-find-definition" */ "src/plugins/find-definition"),
   "editor-optimization": () => import(/* webpackChunkName: "plugin-editor-optimization" */ "src/plugins/editor-optimization"),
+  "todo-list": () => import(/* webpackChunkName: "plugin-todo-list" */ "src/plugins/todo-list"),
 } as const;
