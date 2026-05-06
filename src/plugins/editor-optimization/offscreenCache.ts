@@ -225,15 +225,18 @@ export function restoreTargetFromOffscreen(
     });
 
     // 强制重置 intersects_ 并清除隐藏样式
+    /*不再强制显示所有积木，保留离屏时的 intersects_ 状态，(即注释掉)
     const allBlocks = mainWs.getAllBlocks(false);
     allBlocks.forEach((b: any) => {
       b.intersects_ = true;
       const svgRoot = b.getSvgRoot();
       if (svgRoot) svgRoot.style.display = '';
     });
+    */
     // 搬移注释
     moveCommentsToWorkspace(hiddenWs, mainWs, blockly);
     // 手动设置 blocksArea_ 为画布的真实矩形（轻量，不触发全量重排）
+    /*但这里其实有大宗重排，所以被注掉了。
     if (canvas) {
       const rect = canvas.getBoundingClientRect();
       mainWs.blocksArea_ = {
@@ -247,7 +250,7 @@ export function restoreTargetFromOffscreen(
         }
       };
     }
-
+    */
     // 屏蔽昂贵的 recordCachedAreas，避免覆盖手动设置的区域
     if (!origRecordCachedAreas) {
       origRecordCachedAreas = mainWs.recordCachedAreas;
@@ -266,8 +269,32 @@ export function restoreTargetFromOffscreen(
       canvas?.removeEventListener('mousedown', handler, true);
       canvas?.removeEventListener('touchstart', handler, true);
     };
+    
+        // ▼▼▼ 1. 先重建连接数据库（修复拖拽连接报错的问题）▼▼▼
+    if (mainWs.connectionDBList) {
+      mainWs.connectionDBList.forEach((db: any) => {
+        if (db) db.connections_ = [];
+      });
+      const allBlocks = mainWs.getAllBlocks(false);
+      allBlocks.forEach((b: any) => {
+        const connections = b.getConnections_(true);
+        connections.forEach((conn: any) => {
+          conn.inDB_ = false;
+          const db = mainWs.connectionDBList[conn.type];
+          if (db) db.addConnection(conn);
+        });
+      });
+    }
 
-    // 将所有顶层积木显式加入观察器（Gandi 要求观察到每个顶层）
+    // ▼▼▼ 2. 强制将所有积木重置为可见，以便 Observer 重新检测 ▼▼▼
+    const allBlocks = mainWs.getAllBlocks(false);
+    allBlocks.forEach((b: any) => {
+      b.intersects_ = true;
+      const svgRoot = b.getSvgRoot();
+      if (svgRoot) svgRoot.style.display = '';
+    });
+
+    // ▼▼▼ 3. 将顶层积木加入观察列表，并立即执行一次离屏检查 ▼▼▼
     const topBlocks = mainWs.getTopBlocks(false);
     if (mainWs.intersectionObserver) {
       topBlocks.forEach((b: any) => {
@@ -275,7 +302,6 @@ export function restoreTargetFromOffscreen(
           mainWs.intersectionObserver.observe(b);
         }
       });
-      // 立即执行一次离屏可见性计算
       mainWs.intersectionObserver.checkForIntersections();
     }
   } finally {

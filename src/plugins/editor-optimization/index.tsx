@@ -75,7 +75,6 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
   
   // 用于记录上一个编辑目标，以便切出时保存到离屏缓存
   const lastTargetIdRef = React.useRef<string | null>(null);
-
   React.useEffect(() => { setGlobalVM(vm); }, [vm]);
   React.useEffect(() => { loadFromLocalStorage(); }, []);
 
@@ -160,7 +159,7 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
         {
           key: 'group',
           label: '积木分组&编辑器优化',
-          description: '提供角色积木分组功能，同时优化编辑器性能。默认开启角色积木区缓存，从第二次进入角色开始提升约100%-200%切换效率。',
+          description: '提供角色积木分组功能，同时优化编辑器性能。默认开启角色积木区缓存，从第二次进入角色开始提升约100%-200%切换效率。注意：本插件会忽略代码框，并禁用其创建功能；可能影响协作。',
           items: [
             {
               key: 'enableFastClear',
@@ -186,7 +185,7 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
               key: 'enableDragOptimize',
               type: 'switch',
               label: '[实验]启用拖拽优化',
-              description: '修改拖拽算法，可能优化拖拽积木区时的效率',
+              description: '替换拖拽算法，可能优化拖拽积木区时的效率。不建议开启，不如原生算法稳定。',
               value: false,
               onChange: (v: boolean) => {
                 window.__ENABLE_DRAG_OPTIMIZE__ = v;
@@ -241,6 +240,7 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
       // 尝试从离屏恢复
       if (getOffscreenWorkspace(newTargetId)) {
         try {
+          
           // 清空主工作区（不 dispose）
           if (window.__EDITOR_OPT_FAST_CLEAR_ENABLED__) {
             tw.clear();
@@ -257,7 +257,9 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
               });
             }
           }
-
+          if ((tw as any).intersectionObserver) {
+              (tw as any).intersectionObserver.observing = [];
+          }
           // 临时屏蔽 resize，并延迟恢复，确保 onWorkspaceUpdate 调用时仍为空函数
           const origResize = tw.resize;
           tw.resize = function() {};
@@ -268,7 +270,8 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
             newTargetId, tw, blockly, activeId,
             getBlockGroup, ALL_GROUPS_ID
           );
-
+          //frame处理
+          cleanupFramesAfterLoad(tw);
           setTimeout(() => refreshGroups(), 20);
           return tw;
         } catch (e) {
@@ -352,7 +355,8 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
       } finally {
         setActiveGroupId(newTargetId, originalActiveId);
       }
-
+      //frame处理
+      cleanupFramesAfterLoad(tw);
       // 初始化离屏缓存
       try {
         initTargetCacheAndSwitchToGroup(
@@ -691,7 +695,6 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
       window.requestAnimationFrame = origRAF;
     };
   }, [blockly, workspace]);
-
   //拖拽镜头优化：开关控制 + 边界缓存 + 安全调用
   React.useEffect(() => {
     if (!blockly || !workspace) return;
@@ -926,7 +929,6 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
       delete (window as any).__FORCE_LAYOUT_UPDATE__;
     };
   }, [blockly, workspace]);
-
   //  注释处理：修复重复显示问题 
   React.useEffect(() => {
     const style = document.createElement('style');
@@ -1061,7 +1063,81 @@ const EditorOptimization: React.FC<PluginContext> = ({ vm, blockly, workspace, r
       if ((Blockly as any).Events) (Blockly as any).Events.enable();
     };
   }, [vm, workspace]);
-  
+  //frame处理方法
+ function cleanupFramesAfterLoad(ws: any) {
+  if (!ws) return;
+  // 移除所有 Frame 的 DOM
+  const frames = ws.getTopFrames?.(false) || [];
+  frames.forEach((f: any) => {
+    if (f.frameGroup_) {
+      f.frameGroup_.remove();
+    }
+  });
+  // 解除所有积木的 frame_ 引用，确保它们都在主画布上
+  const allBlocks = ws.getAllBlocks(false) as any[];
+  allBlocks.forEach((b: any) => {
+    if (b.frame_) {
+      b.frame_ = null;
+      const svgRoot = b.getSvgRoot();
+      if (svgRoot && svgRoot.parentNode !== ws.getCanvas()) {
+        ws.getCanvas().appendChild(svgRoot);
+      }
+    }
+  });
+  // 清空工作区内部的 Frame 集合
+  if (ws.topFrames_) ws.topFrames_ = [];
+  if (ws.frameDB_) ws.frameDB_ = Object.create(null);
+
+  // ▼▼▼ 新增 ▼▼▼
+  // 将 Frame 移除后产生的新顶层积木加入 IntersectionObserver，并立即检查可见性
+  const topBlocks = ws.getTopBlocks(false);
+  if (ws.intersectionObserver) {
+    topBlocks.forEach((b: any) => {
+      if (!ws.intersectionObserver.observing.includes(b)) {
+        ws.intersectionObserver.observe(b);
+      }
+    });
+    ws.intersectionObserver.checkForIntersections();
+  }
+  // ▲▲▲ 新增 ▲▲▲
+}
+  // —— Frame 完全禁用 ——
+React.useEffect(() => {
+  if (!blockly || !workspace) return;
+
+  const workspaceProto = Object.getPrototypeOf(workspace);
+
+  // 阻止从 XML 创建 Frame
+  const origDomToFrame = blockly.Xml?.domToFrame;
+  if (origDomToFrame) {
+    blockly.Xml.domToFrame = function () {
+      return null;
+    };
+  }
+
+  // 阻止手动创建 Frame
+  const origCreateFrame = workspaceProto.createFrame;
+  if (origCreateFrame) {
+    workspaceProto.createFrame = function () {
+      return null;
+    };
+  }
+
+  // 阻止进入 "等待创建 Frame" 状态
+  const origSetWaitingCreateFrame = workspaceProto.setWaitingCreateFrameEnabled;
+  if (origSetWaitingCreateFrame) {
+    workspaceProto.setWaitingCreateFrameEnabled = function (_visible: boolean) {};
+  }
+
+  // 立即清除当前工作区已有的 Frame
+  cleanupFramesAfterLoad(workspace);
+
+  return () => {
+    if (origDomToFrame) blockly.Xml.domToFrame = origDomToFrame;
+    if (origCreateFrame) workspaceProto.createFrame = origCreateFrame;
+    if (origSetWaitingCreateFrame) workspaceProto.setWaitingCreateFrameEnabled = origSetWaitingCreateFrame;
+  };
+}, [blockly, workspace]);
   //分组UI
   const portal = document.querySelector('.plugins-wrapper');
   if (!portal) return null;
