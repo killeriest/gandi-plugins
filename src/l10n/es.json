@@ -292,6 +292,7 @@
   "plugins.editorOptimization.enableFullscreenDesc": "Oculta el área de bloques cuando el escenario está en pantalla completa, reduciendo la sobrecarga de renderizado innecesaria del área de bloques.",
   "plugins.editorOptimization.enablePixiLabel": "[Experimental] Habilitar renderizado acelerado por Pixi",
   "plugins.editorOptimization.enablePixiDesc": "Utiliza PixiJS para renderizar el área de bloques como una textura, reduciendo drásticamente el número de nodos DOM y mejorando la fluidez al arrastrar/ampliar. La textura Pixi ofrece funciones interactivas limitadas; haz doble clic para restaurar la visualización DOM nativa.",
+  "plugins.editorOptimization.downloadCleanProject": "Descargar la versión del proyecto sin comentarios de grupo",
   "plugins.debuggerAddon.title": "Depurador",
   "plugins.debuggerAddon.description": "¡Depura felizmente en Gandi! Debe usarse con la extensión GandiTerminal",
   "plugins.debuggerAddon.console": "Consola",

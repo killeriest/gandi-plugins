@@ -15,6 +15,7 @@ import Tooltip from "components/Tooltip";
 import toast from "react-hot-toast";
 import { Box, Input, IconButton } from "@gandi-ide/gandi-ui";
 import * as PIXI from "pixi.js";
+import JSZip from "jszip";
 import {
   getGroups, getActiveGroupId, setActiveGroupId, addGroup, deleteGroup, renameGroup,
   setBlockGroup, getBlockGroup, restoreBlockGroupFromXml, loadFromLocalStorage,
@@ -176,7 +177,73 @@ const EditorOptimizationInner: React.FC<PluginContext> = ({ vm, blockly, workspa
     setEditingName("");
     refreshGroups();
   };
+  const downloadCleanedProject = async () => {
+    if (!vm) {
+      toast.error("未获取到虚拟机实例");
+      return;
+    }
 
+    try {
+      // 1. 调用 VM 自带的 saveProjectSb3 生成标准 SB3 Blob
+      const originalSb3Blob = await (vm as any).saveProjectSb3?.();
+      if (!originalSb3Blob) {
+        throw new Error("saveProjectSb3 不可用");
+      }
+
+      // 2. 用 JSZip 读取该压缩包
+      const zip = await JSZip.loadAsync(originalSb3Blob);
+      const projectFile = zip.file("project.json");
+      if (!projectFile) {
+        throw new Error("project.json 不存在");
+      }
+
+      // 3. 解析并清理 project.json
+      const projectJson = JSON.parse(await projectFile.async("text"));
+
+      // 删除积木的 comment 引用（分组注释）
+      projectJson.targets?.forEach((target: any) => {
+        if (target.blocks) {
+          Object.values(target.blocks).forEach((block: any) => {
+            if (block && block.comment) {
+              delete block.comment;
+            }
+          });
+        }
+        // 删除 comments 中带分组标记的条目
+        if (target.comments && typeof target.comments === "object") {
+          Object.keys(target.comments).forEach((commentId) => {
+            const comment = target.comments[commentId];
+            if (
+              comment &&
+              typeof comment.text === "string" &&
+              comment.text.includes("|EdiOpt|")
+            ) {
+              delete target.comments[commentId];
+            }
+          });
+        }
+      });
+
+      // 4. 重新写入 project.json
+      zip.file("project.json", JSON.stringify(projectJson));
+
+      // 5. 生成新的 Blob 并下载
+      const cleanedBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(cleanedBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(vm.runtime as any).getTargetForStage()?.getName?.() || "project"}_cleaned.sb3`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success("已下载过滤分组注释的作品");
+    } catch (error) {
+      console.error("下载失败", error);
+      toast.error("下载失败，请稍后重试");
+    }
+  };
   // 设置注册（无 Fast Clear）
   useEffect(() => {
     if (!registerSettings) return;
@@ -956,6 +1023,9 @@ const EditorOptimizationInner: React.FC<PluginContext> = ({ vm, blockly, workspa
                     </svg>
                     {msg('plugins.editorOptimization.resetCache')}
                   </button>
+                  <button className={styles.addButton} onClick={downloadCleanedProject}>
+                    {msg('plugins.editorOptimization.downloadCleanProject')}
+                  </button>
                 </div>
               </div>
             </Box>
@@ -966,7 +1036,7 @@ const EditorOptimizationInner: React.FC<PluginContext> = ({ vm, blockly, workspa
   );
 };
 
-// ---------- 外层组件：延迟 5 秒加载 ----------
+// 外层延迟
 const EditorOptimization: React.FC<PluginContext> = (props) => {
   const [ready, setReady] = useState(false);
 
@@ -974,7 +1044,7 @@ const EditorOptimization: React.FC<PluginContext> = (props) => {
     console.log('延迟....')
     const timer = setTimeout(() => {
       setReady(true);
-    }, 2000);
+    }, 1000);
     return () => clearTimeout(timer);
   }, []);
 

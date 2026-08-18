@@ -295,6 +295,7 @@
   "plugins.editorOptimization.enableFullscreenDesc": "Menyembunyikan kawasan blok apabila pentas dalam skrin penuh, mengurangkan overhed pemaparan kawasan blok yang tidak perlu.",
   "plugins.editorOptimization.enablePixiLabel": "[Eksperimen] Dayakan pemaparan dipercepat Pixi",
   "plugins.editorOptimization.enablePixiDesc": "Menggunakan PixiJS untuk memaparkan kawasan blok sebagai tekstur, mengurangkan secara drastik bilangan nod DOM dan meningkatkan kelancaran seret/zoom. Tekstur Pixi menyediakan fungsi interaktif terhad; klik dua kali untuk memulihkan paparan DOM asli.",
+  "plugins.editorOptimization.downloadCleanProject": "Muat turun versi projek tanpa ulasan kumpulan",
   "plugins.debuggerAddon.title": "Penyahpepijat",
   "plugins.debuggerAddon.description": "Debug dengan gembira di Gandi! Perlu digunakan dengan Sambungan GandiTerminal",
   "plugins.debuggerAddon.console": "Konsol",

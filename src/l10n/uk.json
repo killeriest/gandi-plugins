@@ -290,6 +290,7 @@
   "plugins.editorOptimization.enableFullscreenDesc": "Приховує область блоків, коли сцена в повноекранному режимі, зменшуючи непотрібне навантаження на рендеринг області блоків.",
   "plugins.editorOptimization.enablePixiLabel": "[Експериментально] Увімкнути прискорений рендеринг Pixi",
   "plugins.editorOptimization.enablePixiDesc": "Використовує PixiJS для рендерингу області блоків у вигляді текстури, значно зменшуючи кількість вузлів DOM та підвищуючи плавність перетягування/масштабування. Текстура Pixi забезпечує обмежену інтерактивну функціональність; подвійне клацання для відновлення нативного відображення DOM.",
+  "plugins.editorOptimization.downloadCleanProject": "Завантажити версію проєкту без групових коментарів",
   "plugins.debuggerAddon.title": "Відладник",
   "plugins.debuggerAddon.description": "Відладжуйтеся з задоволенням у Gandi! Потрібне розширення GandiTerminal",
   "plugins.debuggerAddon.console": "Консоль",
